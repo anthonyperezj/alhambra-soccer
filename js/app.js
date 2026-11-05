@@ -2922,7 +2922,7 @@ function adminShell(active, body) {
       <button class="link-btn" data-action="signout">${t('signOut')}</button>
     </aside>
     <section class="admin-main">
-      <div class="demo-banner"><span>${t('demoBanner')}</span><button class="btn btn-sm btn-outline" data-action="reset">${t('resetDemo')}</button></div>
+      ${cloudOn() ? '' : `<div class="demo-banner"><span>${t('demoBanner')}</span><button class="btn btn-sm btn-outline" data-action="reset">${t('resetDemo')}</button></div>`}
       ${body}
     </section>
   </div>`;
@@ -2952,8 +2952,11 @@ const writeWho = v => {
   try { v ? localStorage.setItem('asl-admin-who', v) : localStorage.removeItem('asl-admin-who'); sessionStorage.removeItem('asl-admin-who'); } catch (e) {}
 };
 // The name shown for whoever is signed in (an account's name, or the email used for the demo sign-in).
+// Online (Firebase) sign-in is on: accounts live in Firebase instead of this browser.
+const cloudOn = () => typeof CLOUD !== 'undefined' && CLOUD.on;
 function whoName() {
   const who = readWho();
+  if (cloudOn()) return (state.adminNames || {})[who] || who;
   const a = admins().find(x => x.id === who);
   return a ? a.name : who;
 }
@@ -2971,7 +2974,43 @@ async function signIn(form) {
   return render();
 }
 
+// Online: who's signed in, the name History shows for them, and changing their own password. Admins are
+// added and removed in the Firebase console (sign-up from the site is turned off).
+function myAccountHTML() {
+  const email = readWho();
+  return `<form class="card settings-card" data-form="my-account">
+      <h2>${t('adminAccounts')}</h2>
+      <p class="note">${t('adminsCloudHelp')}</p>
+      <p>${t('signedInAs')} <b>${esc(email)}</b></p>
+      <div class="league-grid">
+        <label class="field">${t('yourName')}<input class="input" name="myName" value="${esc((state.adminNames || {})[email] || '')}" placeholder="${esc(email.split('@')[0])}" autocomplete="off"></label>
+        <label class="field">${t('newPasswordOptional')}${pwInput('newPassword', 'new-password')}</label>
+      </div>
+      <p class="warn" hidden></p>
+      <button class="btn btn-gold" type="submit">${t('save')}</button>
+    </form>`;
+}
+async function saveMyAccount(form) {
+  const email = readWho(), name = form.myName.value.trim(), pw = form.newPassword.value;
+  const warn = form.querySelector('.warn');
+  if (pw && pw.length < 6) { warn.textContent = t('passwordShort'); warn.hidden = false; return; }
+  if (name !== ((state.adminNames || {})[email] || '')) {
+    state.adminNames = { ...(state.adminNames || {}), [email]: name };
+    if (!name) delete state.adminNames[email];
+    save();
+  }
+  if (pw) {
+    try { await CLOUD.auth.currentUser.updatePassword(pw); }
+    catch (e) { warn.textContent = t(e.code === 'auth/requires-recent-login' ? 'needsRecentLogin' : 'pwChangeFailed'); warn.hidden = false; return; }
+    logAction(`${t('passwordChanged')}: ${whoName()}`);
+    save();
+  }
+  render();
+  toast(t('saved'));
+}
+
 function adminAccountsHTML() {
+  if (cloudOn()) return myAccountHTML();
   const me = readWho();
   return `<form class="card settings-card" data-form="add-admin">
       <h2>${t('adminAccounts')}</h2>
@@ -3024,10 +3063,10 @@ function pageLogin() {
       ${LOGO}
       <h1>${t('signIn')}</h1>
       <label class="field">${t('email')}<input class="input" type="email" name="email" required autocomplete="username"></label>
-      ${admins().length ? `<label class="field">${t('password')}${pwInput('password', 'current-password', true)}</label>` : ''}
+      ${cloudOn() || admins().length ? `<label class="field">${t('password')}${pwInput('password', 'current-password', true)}</label>` : ''}
       <p class="warn" hidden></p>
       <button class="btn btn-gold btn-block" type="submit">${t('signIn')}</button>
-      <p class="note">${t(admins().length ? 'signInAccounts' : 'signInNote')}</p>
+      <p class="note">${t(cloudOn() || admins().length ? 'signInAccounts' : 'signInNote')}</p>
     </form>
   </div>`;
 }
@@ -6281,7 +6320,7 @@ window.addEventListener('resize', fitSheet);
 
 function render() {
   // An admin whose account was removed is signed out.
-  if (ui.admin && admins().length && !admins().some(a => a.id === readWho())) { ui.admin = false; writeFlag('asl-admin', false); writeWho(''); }
+  if (!cloudOn() && ui.admin && admins().length && !admins().some(a => a.id === readWho())) { ui.admin = false; writeFlag('asl-admin', false); writeWho(''); }
   fillHolds();
   syncRotationForfeits();
   const route = currentRoute();
@@ -6380,7 +6419,7 @@ document.addEventListener('click', e => {
       el.setAttribute('aria-pressed', show);
       return input.focus();
     }
-    case 'signout': ui.admin = false; writeFlag('asl-admin', false); writeWho(''); location.hash = '#/'; return;
+    case 'signout': if (cloudOn()) cloudSignOut(); ui.admin = false; writeFlag('asl-admin', false); writeWho(''); location.hash = '#/'; return;
     case 'cancel-copa': {
       const div = ui.adminDiv;
       state.matches = state.matches.filter(m => !(m.div === div && m.playoff && m.playoff.cup === 'copa'));
@@ -6425,6 +6464,8 @@ document.addEventListener('click', e => {
       });
     }
     case 'reset':
+      // Online, everyone shares the data: there's no demo to reset.
+      if (cloudOn()) return;
       if (confirm(t('confirmReset'))) {
         for (let i = DIVISIONS.length - 1; i >= 0; i--) if (DIVISIONS[i].custom) DIVISIONS.splice(i, 1);
         if (!DIVISIONS.some(d => d.id === ui.div)) ui.div = '40';
@@ -6998,6 +7039,7 @@ document.addEventListener('submit', e => {
   e.preventDefault();
   switch (form.dataset.form) {
     case 'login': return signIn(form);
+    case 'my-account': return saveMyAccount(form);
     case 'add-admin': return addAdmin(form);
     case 'add-forfeit': return addForfeit(form);
     case 'start-playoffs': return startPlayoffs(form);

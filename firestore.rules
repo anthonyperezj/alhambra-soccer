@@ -1,0 +1,11 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // League data: anyone can read it (the public site); only signed-in admins can change it.
+    // Admin accounts are created in the Firebase console; sign-up from the site is turned off.
+    match /league/{doc} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+  }
+}
