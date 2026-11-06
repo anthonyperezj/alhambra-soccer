@@ -35,8 +35,53 @@ if (window.firebase && firebase.initializeApp) {
   } catch (e) { console.warn('Firebase did not start', e); }
 }
 
+// Parts only signed-in admins can read (Proof of Age): saved in the "private" collection, never with the
+// public league data. PRIVATE_PARTS is in app.js.
 const cloudParts = () => Object.fromEntries(Object.entries(state)
-  .filter(([k, v]) => !LOCAL_ONLY.has(k) && v !== undefined).map(([k, v]) => [k, JSON.stringify(v)]));
+  .filter(([k, v]) => !LOCAL_ONLY.has(k) && !PRIVATE_PARTS.has(k) && v !== undefined).map(([k, v]) => [k, JSON.stringify(v)]));
+const privateParts = () => Object.fromEntries([...PRIVATE_PARTS].filter(k => state[k] !== undefined).map(k => [k, JSON.stringify(state[k])]));
+CLOUD.privSynced = {};
+function listenPrivate() {
+  if (CLOUD.privUnsub) return;
+  CLOUD.privUnsub = CLOUD.db.collection('private').onSnapshot(snap => {
+    if (snap.metadata.hasPendingWrites) return;
+    const parts = {};
+    snap.forEach(d => { parts[d.id] = (d.data() || {}).json; });
+    CLOUD.privSynced = { ...parts };
+    CLOUD.privReady = true;
+    let changed = false;
+    PRIVATE_PARTS.forEach(k => {
+      const v = parts[k] ? JSON.parse(parts[k]) : undefined;
+      if (JSON.stringify(state[k]) === JSON.stringify(v)) return;
+      if (v === undefined) delete state[k]; else state[k] = v;
+      if (lastSaved) { if (v === undefined) delete lastSaved[k]; else lastSaved[k] = JSON.parse(parts[k]); }
+      changed = true;
+    });
+    if (changed) { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} render(); }
+  }, err => { console.warn('Could not read the admin-only data', err); });
+}
+function stopPrivate() {
+  if (CLOUD.privUnsub) { CLOUD.privUnsub(); CLOUD.privUnsub = null; }
+  CLOUD.privReady = false; CLOUD.privSynced = {};
+  // signed out: the admin-only data doesn't stay in this browser
+  PRIVATE_PARTS.forEach(k => { delete state[k]; if (lastSaved) delete lastSaved[k]; });
+  try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {}
+}
+async function pushPrivate() {
+  if (!CLOUD.user || !CLOUD.privReady) return;
+  const parts = privateParts(), col = CLOUD.db.collection('private'), batch = CLOUD.db.batch();
+  let n = 0;
+  Object.entries(parts).forEach(([k, json]) => { if (CLOUD.privSynced[k] !== json) { batch.set(col.doc(k), { json }); n++; } });
+  Object.keys(CLOUD.privSynced).forEach(k => { if (!(k in parts)) { batch.delete(col.doc(k)); n++; } });
+  if (!n) return;
+  const before = { ...CLOUD.privSynced };
+  CLOUD.privSynced = { ...parts };
+  try { await batch.commit(); } catch (e) {
+    console.warn('Could not save the admin-only data', e);
+    CLOUD.privSynced = before;
+    toast(t('privateSaveFailed'));
+  }
+}
 
 // Put the online data in place of this browser's copy.
 function applyCloud(parts) {
@@ -144,10 +189,10 @@ save = function () {
   saveHere();
   if (!CLOUD.on || !CLOUD.user || !CLOUD.ready) return;
   clearTimeout(CLOUD.timer);
-  CLOUD.timer = setTimeout(() => cloudPush(), 400);
+  CLOUD.timer = setTimeout(() => { cloudPush(); pushPrivate(); }, 400);
 };
 window.addEventListener('beforeunload', e => {
-  if (CLOUD.timer && CLOUD.user) { clearTimeout(CLOUD.timer); cloudPush(); }
+  if (CLOUD.timer && CLOUD.user) { clearTimeout(CLOUD.timer); cloudPush(); pushPrivate(); }
 });
 
 // Admin sign-in with Firebase.
@@ -174,6 +219,7 @@ if (CLOUD.on) {
     writeFlag('asl-admin', !!u);
     writeWho(u ? u.email : '');
     if (u && CLOUD.empty) pushAll();
+    if (u) listenPrivate(); else stopPrivate();
     // History shows names, not emails: tidy older lines once the online data is in.
     if (u) { const tidy = () => (CLOUD.ready ? (scrubLogEmails() || CLOUD.upgraded) && save() : setTimeout(tidy, 800)); setTimeout(tidy, 800); }
     render();

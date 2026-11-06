@@ -1712,3 +1712,22 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .row-actions { flex-wrap: wrap; }
 .row-actions .btn { max-width: 100%; white-space: normal; text-align: center; }
 /* Save Image standings: the 1st/2nd/3rd lines are 0.1 in (9.6 px) thicker than before (4 px → 13.6 px) */
+/* Website "Save as image" post: header in white over the division's background, table in the middle */
+.post-block { background: transparent; display: inline-block; }
+.post-block .export-head { color: #fff; border-bottom: 0; text-shadow: 0 2px 8px rgba(0,0,0,.35); margin: 0; padding-bottom: 0; }
+.post-block .export-head .eh-center span { color: rgba(255,255,255,.85); }
+.post-block .pb-table { display: flex; justify-content: center; }
+/* Game # centered under the division (U-9 / GAME 2) */
+.eh-right { align-items: center; }
+.eh-right .eh-div { text-align: center; }
+/* Goleadores post: no season line under the title, and a bigger GOLEADORES */
+.post-block .export-head .eh-center span { display: none; }
+.post-block .export-head .eh-center b { font-size: 46px; }
+/* Admin → Proof of Age */
+.pa-card { border-left-color: #c9a227; }
+.pa-card.pa-ok { border-left-color: #2e7d32; }
+.pa-card.pa-no { border-left-color: #c62828; }
+.tag.pa-tag-ok { background: #e6f4ea; color: #1d6b35; border: 1px solid #b7dfc2; }
+.tag.pa-tag-no { background: #fdecea; color: #a12a1e; border: 1px solid #f3c1bb; }
+.pa-form-title { margin: 0 0 6px; font-size: 18px; }
+.pa-card .row-actions { margin-top: 4px; }

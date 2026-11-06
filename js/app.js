@@ -170,7 +170,7 @@ function autoLogText(changes, prev, now) {
     }
     const label = { rotation: t('rotation'), standingsHidden: t('hideFromStandings'), redCards: t('redCards'), gameLengths: t('gameLength'),
       fieldsClosed: t('fields'), offDays: t('daysOff'), seasons: t('seasons'), seasonGames: t('gamesInSeason'), settings: t('settings'),
-      regButtons: t('regPageButtons'), regCards: t('regDivCards'), homePage: t('homePageNav'), logos: t('teamLogos'), tableImage: t('tableImage'), scorerImage: `${t('tableImage')} · ${t('scorers')}`, tableImageByDiv: `${t('tableImage')} · ${t('standings')}`, scorerImageByDiv: `${t('tableImage')} · ${t('scorers')}`, scoresImageByDiv: `${t('tableImage')} · ${t('weeklyScores')}`, playoffs: t('playoffs'), copa: t('copa'), looseTimes: t('strictTimes'),
+      regButtons: t('regPageButtons'), regCards: t('regDivCards'), homePage: t('homePageNav'), ageChecks: t('ageChecks'), logos: t('teamLogos'), tableImage: t('tableImage'), scorerImage: `${t('tableImage')} · ${t('scorers')}`, tableImageByDiv: `${t('tableImage')} · ${t('standings')}`, scorerImageByDiv: `${t('tableImage')} · ${t('scorers')}`, scoresImageByDiv: `${t('tableImage')} · ${t('weeklyScores')}`, playoffs: t('playoffs'), copa: t('copa'), looseTimes: t('strictTimes'),
       strictTimes: t('strictTimes'), rotationOff: t('rotationAuto'), fieldsAdded: t('fields'), addedFields: t('fields'), leagues: t('seasons') }[top];
     if (!label) return;
     if (top === 'regButtons' && !a) {
@@ -200,13 +200,16 @@ function mergePatches(a, b) {
   return [...map.values()].filter(c => !sameJSON(c.before, c.after));
 }
 
+// Parts kept where only signed-in admins can read them (js/cloud.js): never copied into History.
+const PRIVATE_PARTS = new Set(['ageChecks']);
+const publicDiff = (a, b) => diffState(a, b).filter(ch => !PRIVATE_PARTS.has(ch.path[0]));
 function recordChanges() {
   const now = JSON.parse(JSON.stringify(state));
   if (lastSaved) {
     const known = new Set((lastSaved.log || []).map(e => e.id));
     const fresh = (state.log || []).filter(e => !known.has(e.id) && !e.patch);
     if (!fresh.length && ui.admin && Date.now() - lastUserAct < 3000) {
-      const changes = diffState(lastSaved, now);
+      const changes = publicDiff(lastSaved, now);
       const { key, text } = changes.length ? autoLogText(changes, lastSaved, now) : {};
       if (text && JSON.stringify(changes).length < 400000) {
         // Quick edits to the same thing by the same person (typing goals one by one) join one entry.
@@ -223,7 +226,7 @@ function recordChanges() {
       }
     }
     if (fresh.length) {
-      const changes = diffState(lastSaved, now);
+      const changes = publicDiff(lastSaved, now);
       // Very large changes (like starting a season) keep their own undo instead.
       if (changes.length && JSON.stringify(changes).length < 400000) {
         fresh[fresh.length - 1].patch = changes;
@@ -1090,6 +1093,168 @@ function pageAdminRedCards() {
       <div class="rc-grid">${served.map(card).join('')}</div>
     </section>` : ''}
 `);
+}
+
+// ---------- Proof of Age (Admin → Proof of Age) ----------
+// A coach asks to see a player's documents again. The report (player, their team, who reported it, when)
+// waits under Pending; once the documents are checked it's finished with who checked them, their role,
+// what was brought and whether the age was confirmed. Admin only: none of this shows on the site.
+const PA_DOCS = ['paDocPassport', 'paDocBirth', 'paDocStateId', 'paDocOther'];
+const paDocText = c => (c.check.doc === 'paDocOther' ? `${t('paDocOther')}: ${c.check.docOther || '—'}` : t(c.check.doc));
+// Game days of a division as "Game 9 · Sun, Oct 25" (value = the date).
+const paGameDays = div => [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
+const paGameLabel = (div, date) => `${t('game')} ${gameNumber(div, date)} · ${fmtDate(date)}`;
+function paTeamSelect(name, div, current, others) {
+  const mine = [...(state.teams[div] || [])].sort((a, b) => a.localeCompare(b));
+  // "Reported by" can also be a team from another division (listed after, with its division).
+  const rest = others ? DIVISIONS.filter(d => d.id !== div).flatMap(d => (state.teams[d.id] || []).map(tm => [`${tm} (${divName(d.id)})`, tm, d.id])) : [];
+  return `<select class="select" name="${name}" ${div ? '' : 'disabled'}>
+    <option value="" ${current ? '' : 'selected'} ${others ? '' : 'disabled'}>${t(others ? 'paNotSure' : 'chooseOne')}</option>
+    ${mine.map(tm => `<option value="${esc(tm)}" ${tm === current ? 'selected' : ''}>${esc(tm)}</option>`).join('')}
+    ${rest.length ? `<optgroup label="${t('paOtherDivisions')}">${rest.map(([label, tm, d]) => `<option value="${esc(`${tm}|${d}`)}" ${`${tm}|${d}` === current ? 'selected' : ''}>${esc(label)}</option>`).join('')}</optgroup>` : ''}
+  </select>`;
+}
+// The report fields (new report, or editing one).
+function paReportFields(c = {}) {
+  const div = c.div || ui.paDiv || '';
+  const days = div ? paGameDays(div) : [];
+  return `<div class="league-grid">
+      <label class="field">${t('division')}<select class="select" name="div" data-change="pa-div">
+        <option value="" ${div ? '' : 'selected'} disabled>${t('chooseOne')}</option>
+        ${DIVISIONS.filter(d => !isTour(d)).map(d => `<option value="${d.id}" ${d.id === div ? 'selected' : ''}>${esc(divName(d.id))}</option>`).join('')}</select></label>
+      <label class="field">${t('paPlayer')}<input class="input" name="player" autocomplete="off" value="${esc(c.player || '')}"></label>
+      <label class="field">${t('paPlayerTeam')}${paTeamSelect('team', div, c.team, false)}</label>
+      <label class="field">${t('paReportedBy')}${paTeamSelect('by', div, c.byDiv && c.byDiv !== div ? `${c.by}|${c.byDiv}` : c.by, true)}</label>
+    </div>
+    <div class="league-grid">
+      <label class="field">${t('paGame')} <span class="muted small">(${t('optional')})</span><select class="select" name="game" data-change="pa-game" ${div ? '' : 'disabled'}>
+        <option value="">—</option>${days.map(d => `<option value="${d}" ${d === c.gameDate ? 'selected' : ''}>${esc(paGameLabel(div, d))}</option>`).join('')}</select></label>
+      <label class="field">${t('paDate')} <span class="muted small">(${t('optional')})</span><input class="input" name="date" type="date" value="${esc(c.date || '')}"></label>
+    </div>
+    <label class="field">${t('paNotes')} <span class="muted small">(${t('optional')})</span><textarea class="input" name="notes" rows="2" placeholder="${t('paNotesHint')}">${esc(c.notes || '')}</textarea></label>`;
+}
+// Who checked the documents and what they found.
+function paCheckFields(ck = {}) {
+  return `<div class="league-grid">
+      <label class="field">${t('paCheckedBy')}<input class="input" name="name" autocomplete="off" value="${esc(ck.name || '')}"></label>
+      <label class="field">${t('paRole')}<input class="input" name="role" autocomplete="off" value="${esc(ck.role || '')}" placeholder="${t('paRoleHint')}"></label>
+      <label class="field">${t('paDoc')}<select class="select" name="doc" data-change="pa-doc">
+        <option value="" ${ck.doc ? '' : 'selected'} disabled>${t('chooseOne')}</option>
+        ${PA_DOCS.map(k => `<option value="${k}" ${k === ck.doc ? 'selected' : ''}>${t(k)}</option>`).join('')}</select></label>
+      <label class="field pa-doc-other" ${ck.doc === 'paDocOther' ? '' : 'hidden'}>${t('paDocOtherWhat')}<input class="input" name="docOther" autocomplete="off" value="${esc(ck.docOther || '')}"></label>
+      <label class="field">${t('paResult')}<select class="select" name="result">
+        <option value="" ${ck.result ? '' : 'selected'} disabled>${t('chooseOne')}</option>
+        <option value="ok" ${ck.result === 'ok' ? 'selected' : ''}>${t('paConfirmed')}</option>
+        <option value="no" ${ck.result === 'no' ? 'selected' : ''}>${t('paNotConfirmed')}</option></select></label>
+      <label class="field">${t('paCheckedOn')}<input class="input" name="on" type="date" value="${esc(ck.on || todayISO())}"></label>
+    </div>
+    <label class="field">${t('staffNotes')} <span class="muted small">(${t('optional')})</span><textarea class="input" name="checkNotes" rows="2">${esc(ck.notes || '')}</textarea></label>`;
+}
+function readPaReport(form) {
+  const f = new FormData(form);
+  const div = f.get('div'), player = (f.get('player') || '').trim(), team = f.get('team') || '';
+  const byRaw = f.get('by') || '';
+  const [by, byDiv] = byRaw.includes('|') ? byRaw.split('|') : [byRaw, byRaw ? div : ''];
+  const gameDate = f.get('game') || '';
+  const missing = [[div, 'division'], [player, 'paPlayer'], [team, 'paPlayerTeam']].filter(([ok]) => !ok).map(([, k]) => t(k));
+  return { missing, data: { div, player, team, by, byDiv, gameDate, date: f.get('date') || gameDate, notes: (f.get('notes') || '').trim() } };
+}
+function readPaCheck(form) {
+  const f = new FormData(form);
+  const ck = { name: (f.get('name') || '').trim(), role: (f.get('role') || '').trim(), doc: f.get('doc') || '', docOther: (f.get('docOther') || '').trim(),
+    result: f.get('result') || '', on: f.get('on') || todayISO(), notes: (f.get('checkNotes') || '').trim() };
+  const missing = [[ck.name, 'paCheckedBy'], [ck.role, 'paRole'], [ck.doc, 'paDoc'], [ck.doc !== 'paDocOther' || ck.docOther, 'paDocOtherWhat'], [ck.result, 'paResult']]
+    .filter(([ok]) => !ok).map(([, k]) => t(k));
+  if (ck.doc !== 'paDocOther') delete ck.docOther;
+  return { missing, ck };
+}
+function pageAdminAgeChecks() {
+  const all = (state.ageChecks || []).filter(c => !ui.paFilter || c.div === ui.paFilter);
+  const order = id => DIVISIONS.findIndex(d => d.id === id);
+  // grouped by division (in the usual division order), newest first inside each
+  const byDiv = list => [...new Set(list.map(c => c.div))].sort((a, b) => order(a) - order(b))
+    .map(div => `<h3 class="reg-group">${esc(divName(div))}</h3><div class="rc-grid">${list.filter(c => c.div === div).sort((a, b) => (b.date || b.added).localeCompare(a.date || a.added)).map(paCard).join('')}</div>`).join('');
+  const pending = all.filter(c => !c.check), done = all.filter(c => c.check);
+  return adminShell('admin/agechecks', `
+    <h1 class="page-title">${t('ageChecks')}</h1>
+    <p class="note">${t('ageChecksHelp')}</p>
+    <div class="toolbar rc-filter">
+      <button class="pill ${ui.paFilter ? '' : 'active'}" data-pa-div="">${t('allDivisions')}</button>
+      ${divPills(ui.paFilter || '', 'data-pa-div')}
+    </div>
+    <form class="card season-form" data-form="pa-add">
+      <h2 class="pa-form-title">${t('paNewReport')}</h2>
+      ${paReportFields()}
+      <p class="warn" hidden></p>
+      <button class="btn btn-gold" type="submit">${t('paAdd')}</button>
+    </form>
+    <section class="reg-section">
+      <h2 class="section-title">${t('paPending')} <span class="muted">(${pending.length})</span></h2>
+      ${byDiv(pending) || empty(t('paNonePending'))}
+    </section>
+    ${done.length ? `<section class="reg-section">
+      <h2 class="section-title">${t('paDone')} <span class="muted">(${done.length})</span></h2>
+      ${byDiv(done)}
+    </section>` : ''}`);
+}
+function paCard(c) {
+  const when = [c.gameDate ? paGameLabel(c.div, c.gameDate) : '', c.date && c.date !== c.gameDate ? fmtDate(c.date) : ''].filter(Boolean).join(' · ');
+  const by = c.by ? `${c.by}${c.byDiv && c.byDiv !== c.div ? ` (${divName(c.byDiv)})` : ''}` : t('paNotSure');
+  const ck = c.check;
+  return `<article class="card rc-card pa-card ${ck ? (ck.result === 'ok' ? 'pa-ok' : 'pa-no') : 'pa-pending'}">
+      <div class="rc-head">
+        <div><b class="rc-player">${esc(c.player)}</b><span class="muted"> · ${esc(c.team)} · <span class="nowrap">${esc(divName(c.div))}</span></span></div>
+        <span class="rc-tools">
+          ${ck ? `<span class="tag ${ck.result === 'ok' ? 'pa-tag-ok' : 'pa-tag-no'}">${t(ck.result === 'ok' ? 'paConfirmed' : 'paNotConfirmed')}</span>` : ''}
+          <button type="button" class="btn btn-sm btn-outline" data-action="pa-edit-open" data-id="${c.id}">${t('editGame')}</button>
+          <button type="button" class="icon-btn danger" data-action="ask" data-confirm="rm-agecheck" data-id="${c.id}" aria-label="${t('remove')}">×</button>
+        </span>
+      </div>
+      <p class="rc-line"><span class="muted">${t('paReportedBy')}:</span> ${esc(by)}</p>
+      ${when ? `<p class="rc-line"><span class="muted">${t('paWhen')}:</span> ${esc(when)}</p>` : ''}
+      ${c.notes ? `<p class="rc-line"><span class="muted">${t('paNotes')}:</span> ${esc(c.notes)}</p>` : ''}
+      ${ck ? `<p class="rc-line"><span class="muted">${t('paCheckedBy')}:</span> ${esc(ck.name)}${ck.role ? ` (${esc(ck.role)})` : ''} · ${fmtDate(ck.on)}</p>
+        <p class="rc-line"><span class="muted">${t('paDoc')}:</span> ${esc(paDocText(c))}</p>
+        ${ck.notes ? `<p class="rc-line"><span class="muted">${t('staffNotes')}:</span> ${esc(ck.notes)}</p>` : ''}` : ''}
+      ${!ck && ui.paFinish !== c.id && ui.paEdit !== c.id ? `<div class="row-actions"><button type="button" class="btn btn-sm btn-gold" data-action="pa-finish-open" data-id="${c.id}">${t('paFinish')}</button></div>` : ''}
+      ${ui.paFinish === c.id ? `<form class="rc-edit" data-form="pa-finish" data-id="${c.id}">
+          ${paCheckFields()}
+          <p class="warn" hidden></p>
+          <div class="edit-actions"><button type="button" class="btn btn-sm btn-outline" data-action="pa-close">${t('cancel')}</button>
+            <button type="submit" class="btn btn-sm btn-gold">${t('paFinishSave')}</button></div>
+        </form>` : ''}
+      ${ui.paEdit === c.id ? `<form class="rc-edit" data-form="pa-edit" data-id="${c.id}">
+          ${paReportFields(c)}
+          ${ck ? `<p class="field-label">${t('paCheckPart')}</p>${paCheckFields(ck)}` : ''}
+          <p class="warn" hidden></p>
+          <div class="edit-actions"><button type="button" class="btn btn-sm btn-outline" data-action="pa-close">${t('cancel')}</button>
+            <button type="submit" class="btn btn-sm btn-gold">${t('saveChanges')}</button></div>
+        </form>` : ''}
+    </article>`;
+}
+function savePaForm(form, kind) {
+  const warn = form.querySelector('.warn');
+  const list = state.ageChecks || [];
+  const c = kind === 'add' ? null : list.find(x => x.id === form.dataset.id);
+  if (kind !== 'add' && !c) return;
+  const rep = kind === 'finish' ? null : readPaReport(form);
+  const chk = kind === 'finish' || (kind === 'edit' && c.check) ? readPaCheck(form) : null;
+  const missing = [...(rep ? rep.missing : []), ...(chk ? chk.missing : [])];
+  if (missing.length) { warn.textContent = `${t('fillIn')}: ${missing.join(', ')}`; warn.hidden = false; return; }
+  if (kind === 'add') {
+    const n = { id: `pa${Date.now().toString(36)}`, added: todayISO(), ...rep.data };
+    state.ageChecks = [...list, n];
+    logAction(`${t('ageChecks')} · ${divName(n.div)}: ${t('paLogAdded')} ${n.team}`);
+    ui.paDiv = n.div;
+  } else {
+    if (rep) Object.assign(c, rep.data);
+    if (chk) c.check = chk.ck;
+    logAction(`${t('ageChecks')} · ${divName(c.div)}: ${kind === 'finish' ? t('paLogFinished') : t('paLogEdited')} (${c.team})`);
+    state.ageChecks = [...list];
+  }
+  ui.paFinish = null; ui.paEdit = null;
+  save(); render();
+  return toast(kind === 'add' ? t('paAddedToast') : kind === 'finish' ? t('paFinishedToast') : t('saved'));
 }
 
 function addRedCard(form) {
@@ -3114,7 +3279,7 @@ const navTitle = txt => (LANG === 'es' ? txt : txt.split(' ').map((w, i) => (i &
 function adminShell(active, body) {
   // Grouped by how often they're used: every week, during the season, then setup.
   const groups = [
-    ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards']]],
+    ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards'], ['admin/agechecks', 'ageChecks']]],
     ['navSeason', [['admin/teamgames', 'teamGames'], ['admin/teams', 'teams'], ['admin/rotation', 'rotation'], ['admin/playoffs', 'playoffs'], ['admin/tournaments', 'tournaments'], ['admin/seasons', 'seasons']]],
     ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage'], ['admin/regpage', 'regPageButtons'], ['admin/homepage', 'homePageNav']]],
   ];
@@ -5373,6 +5538,36 @@ function fourByFive(c) {
   g.drawImage(c, (out.width - w) / 2, (out.height - h) / 2, w, h);
   return out;
 }
+// ---------- Standings / Goleadores post (the website's "Save as image") ----------
+// 4×5: the division's color background, the league header, and the same table as Admin → Save Image
+// (with that division's settings), centered.
+const POST_BG = { varonil: 'varonil', femenil: 'femenil', 40: '40' };
+const postBg = div => `images/bg/${POST_BG[div] || (groupOf(div) === 'youth' ? 'youth' : groupOf(div) === 'futsal' ? 'futsal' : 'varonil')}.jpg`;
+// Two pieces, drawn separately so each can fill the picture: the header (at its usual 760 px design width)
+// and the table (at its Save Image size).
+const postHeadHTML = (what, div) => `<div class="post-block" style="width:760px">${exportHeadHTML(what, div)}</div>`;
+const postTableHTML = (what, div) => `<div class="post-block">${what === 'scorers' ? scorerImageHTML(div) : tableImageHTML(div)}</div>`;
+const loadImg = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src; });
+// 2160 × 2700: the background fills it; the header goes across the top part and the table as big as fits
+// under it; the two together are centered.
+async function postCanvas(head, table, bgSrc) {
+  const out = document.createElement('canvas');
+  out.width = 2160; out.height = 2700;
+  const g = out.getContext('2d');
+  try {
+    const bg = await loadImg(bgSrc);
+    const k = Math.max(out.width / bg.width, out.height / bg.height);
+    g.drawImage(bg, (out.width - bg.width * k) / 2, (out.height - bg.height * k) / 2, bg.width * k, bg.height * k);
+  } catch (e) { g.fillStyle = '#10233f'; g.fillRect(0, 0, out.width, out.height); }
+  g.imageSmoothingQuality = 'high';
+  const maxW = out.width * 0.88, maxH = out.height * 0.9, gap = out.height * 0.03;
+  const hk = maxW / head.width, hw = head.width * hk, hh = head.height * hk;
+  const tk = Math.min(maxW / table.width, (maxH - hh - gap) / table.height), tw = table.width * tk, th = table.height * tk;
+  const top = (out.height - (hh + gap + th)) / 2;
+  g.drawImage(head, (out.width - hw) / 2, top, hw, hh);
+  g.drawImage(table, (out.width - tw) / 2, top + hh + gap, tw, th);
+  return out;
+}
 // Saved pictures are named "[Division] [Game #] [Table type]", e.g. "40+ Game 9 Standings.png".
 const picName = (div, game, type) => safeName(`${divName(div)}${game ? ` ${t('game')} ${game}` : ''} ${type}`);
 function exportCard(btn) {
@@ -5389,6 +5584,11 @@ function exportCard(btn) {
       const sc = what === 'scorerTable';
       const [c] = await snapPages(sc ? scorerImageHTML(div) : tableImageHTML(div), EXPORT_SCALE, null);
       return downloadPng(c, `${picName(div, gameThrough(div), t(sc ? 'scorers' : 'standings'))}.png`);
+    }
+    if (what === 'standings' || what === 'scorers') {
+      const [head] = await snapPages(postHeadHTML(what, div), EXPORT_SCALE, null);
+      const [table] = await snapPages(postTableHTML(what, div), EXPORT_SCALE, null);
+      return downloadPng(await postCanvas(head, table, postBg(div)), `${picName(div, gameThrough(div), t(what))}.png`);
     }
     const [c] = await snapPages(exportCardHTML(what, div), EXPORT_SCALE);
     // "U-11 Game 2 Standings", "U-11 Game 2 Goleadores"; cups: "U-11 Playoffs", a tournament by its own title.
@@ -7025,7 +7225,7 @@ const ROUTES = {
   admin: pageAdminDash, 'admin/scores': pageAdminScores, 'admin/scorers': pageAdminScorers,
   'admin/schedule': pageAdminSchedule, 'admin/teams': pageAdminTeams, 'admin/seasons': pageAdminSeasons, 'admin/fields': pageAdminFields,
   'admin/settings': pageAdminSettings, 'admin/history': pageAdminHistory, 'admin/redcards': pageAdminRedCards,
-  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/homepage': pageAdminHome, 'admin/matchups': pageAdminTeamGames,
+  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/homepage': pageAdminHome, 'admin/agechecks': pageAdminAgeChecks, 'admin/matchups': pageAdminTeamGames,
   archive: pageArchive,
 };
 
@@ -7112,7 +7312,7 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   const jump = e.target.closest('[data-scroll]');
   if (jump) { e.preventDefault(); document.getElementById(jump.dataset.scroll).scrollIntoView({ behavior: 'smooth' }); return; }
-  const el = e.target.closest('[data-action],[data-lang],[data-div],[data-admin-div],[data-filter],[data-rc-div]');
+  const el = e.target.closest('[data-action],[data-lang],[data-div],[data-admin-div],[data-filter],[data-rc-div],[data-pa-div]');
   if (!el) return;
 
   if (el.dataset.lang) { setLang(el.dataset.lang); return render(); }
@@ -7127,6 +7327,7 @@ document.addEventListener('click', e => {
     return;
   }
   if (el.dataset.filter) { ui.adminFilter = el.dataset.filter; return render(); }
+  if (el.dataset.paDiv !== undefined) { ui.paFilter = el.dataset.paDiv; ui.paFinish = null; ui.paEdit = null; return render(); }
   if (el.dataset.rcDiv !== undefined) { ui.rcDiv = el.dataset.rcDiv; ui.rcEdit = null; ui.rcTeam = ''; return render(); }
 
   const form = el.closest('form');
@@ -7382,6 +7583,16 @@ document.addEventListener('click', e => {
       logAction(`${t('logSeasonReopened')}: ${unitDivs(el.dataset.for).map(divName).join(', ')}`);
       save(); return render();
     case 'rc-edit': ui.rcEdit = ui.rcEdit === el.dataset.id ? null : el.dataset.id; return render();
+    case 'pa-finish-open': ui.paFinish = el.dataset.id; ui.paEdit = null; return render();
+    case 'pa-edit-open': ui.paEdit = ui.paEdit === el.dataset.id ? null : el.dataset.id; ui.paFinish = null; return render();
+    case 'pa-close': ui.paFinish = null; ui.paEdit = null; return render();
+    case 'rm-agecheck': {
+      const c = (state.ageChecks || []).find(x => x.id === el.dataset.id);
+      if (!c) return;
+      state.ageChecks = state.ageChecks.filter(x => x !== c);
+      logAction(`${t('ageChecks')} · ${divName(c.div)}: ${t('paLogRemoved')} (${c.team})`);
+      save(); return render();
+    }
     case 'rm-redcard': {
       const c = (state.redCards || []).find(x => x.id === el.dataset.id);
       if (!c) return;
@@ -7939,6 +8150,9 @@ document.addEventListener('submit', e => {
     case 'withdraw-team': return withdrawTeam(form);
     case 'postponed-game': return savePostponed(form);
     case 'red-card': return addRedCard(form);
+    case 'pa-add': return savePaForm(form, 'add');
+    case 'pa-finish': return savePaForm(form, 'finish');
+    case 'pa-edit': return savePaForm(form, 'edit');
     case 'rc-edit': {
       // Longer or shorter suspension: the change, the date it was decided and why are kept on the card.
       const c = state.redCards.find(x => x.id === form.dataset.id);
@@ -8399,6 +8613,17 @@ document.addEventListener('change', e => {
   if (e.target.closest('.board')) {
     return e.target.matches('.tp-h, .tp-m') ? commitTimeBox(e.target) : boardChange(e.target);
   }
+  if (e.target.dataset.change === 'pa-div') {
+    // new division: its teams and game days fill the menus (what's typed stays)
+    const form = e.target.form, div = e.target.value;
+    if (!form.dataset.id) ui.paDiv = div;
+    const tmp = document.createElement('div');
+    tmp.innerHTML = paReportFields({ div, player: form.player.value, date: form.date.value, notes: form.notes.value });
+    ['team', 'by', 'game'].forEach(n => form[n].replaceWith(tmp.querySelector(`[name=${n}]`)));
+    return;
+  }
+  if (e.target.dataset.change === 'pa-game') { if (e.target.value) e.target.form.date.value = e.target.value; return; }
+  if (e.target.dataset.change === 'pa-doc') { e.target.form.querySelector('.pa-doc-other').hidden = e.target.value !== 'paDocOther'; return; }
   if (e.target.dataset.change === 'rc-div' || e.target.dataset.change === 'rc-team') {
     // Picking a division fills its teams; picking a team fills its games and player names.
     const form = e.target.form, div = form.div.value;
