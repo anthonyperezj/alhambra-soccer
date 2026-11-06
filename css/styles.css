@@ -1731,3 +1731,9 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .tag.pa-tag-no { background: #fdecea; color: #a12a1e; border: 1px solid #f3c1bb; }
 .pa-form-title { margin: 0 0 6px; font-size: 18px; }
 .pa-card .row-actions { margin-top: 4px; }
+/* Proof of Age forms: even two-column rows, labels on one line so boxes line up */
+.pa-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 16px; margin-bottom: 12px; align-items: end; }
+.pa-lbl { display: block; min-height: 1.3em; }
+.pa-lbl .small { font-weight: 500; }
+form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
+@media (max-width: 640px) { .pa-grid { grid-template-columns: minmax(0, 1fr); } }

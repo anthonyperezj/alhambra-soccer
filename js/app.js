@@ -1104,6 +1104,15 @@ const paDocText = c => (c.check.doc === 'paDocOther' ? `${t('paDocOther')}: ${c.
 // Game days of a division as "Game 9 · Sun, Oct 25" (value = the date).
 const paGameDays = div => [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
 const paGameLabel = (div, date) => `${t('game')} ${gameNumber(div, date)} · ${fmtDate(date)}`;
+// A person's role: Coach, Assistant coach, or Other (typed in).
+const PA_ROLES = ['paRoleCoach', 'paRoleAsst', 'paRoleOther'];
+function paRoleFields(name, role, other) {
+  return `<label class="field">${t('paRole')}<select class="select" name="${name}" data-change="pa-role">
+      <option value="" ${role ? '' : 'selected'}>${t('chooseOne')}</option>
+      ${PA_ROLES.map(k => `<option value="${k}" ${k === role ? 'selected' : ''}>${t(k)}</option>`).join('')}</select></label>
+    <label class="field pa-role-other" ${role === 'paRoleOther' ? '' : 'hidden'}>${t('paRoleOtherWhat')}<input class="input" name="${name}Other" autocomplete="off" value="${esc(other || '')}"></label>`;
+}
+const paRoleText = (role, other) => (!role ? '' : role === 'paRoleOther' ? other || t('paRoleOther') : PA_ROLES.includes(role) ? t(role) : role);
 function paTeamSelect(name, div, current, others) {
   const mine = [...(state.teams[div] || [])].sort((a, b) => a.localeCompare(b));
   // "Reported by" can also be a team from another division (listed after, with its division).
@@ -1115,10 +1124,12 @@ function paTeamSelect(name, div, current, others) {
   </select>`;
 }
 // The report fields (new report, or editing one).
+// A label with "(optional)" kept on its own line, so the boxes in a row line up.
+const paLbl = (k, optional) => `<span class="pa-lbl">${t(k)}${optional ? ` <span class="muted small">(${t('optional')})</span>` : ''}</span>`;
 function paReportFields(c = {}) {
   const div = c.div || ui.paDiv || '';
   const days = div ? paGameDays(div) : [];
-  return `<div class="league-grid">
+  return `<div class="pa-grid">
       <label class="field">${t('division')}<select class="select" name="div" data-change="pa-div">
         <option value="" ${div ? '' : 'selected'} disabled>${t('chooseOne')}</option>
         ${DIVISIONS.filter(d => !isTour(d)).map(d => `<option value="${d.id}" ${d.id === div ? 'selected' : ''}>${esc(divName(d.id))}</option>`).join('')}</select></label>
@@ -1126,18 +1137,24 @@ function paReportFields(c = {}) {
       <label class="field">${t('paPlayerTeam')}${paTeamSelect('team', div, c.team, false)}</label>
       <label class="field">${t('paReportedBy')}${paTeamSelect('by', div, c.byDiv && c.byDiv !== div ? `${c.by}|${c.byDiv}` : c.by, true)}</label>
     </div>
-    <div class="league-grid">
-      <label class="field">${t('paGame')} <span class="muted small">(${t('optional')})</span><select class="select" name="game" data-change="pa-game" ${div ? '' : 'disabled'}>
-        <option value="">—</option>${days.map(d => `<option value="${d}" ${d === c.gameDate ? 'selected' : ''}>${esc(paGameLabel(div, d))}</option>`).join('')}</select></label>
-      <label class="field">${t('paDate')} <span class="muted small">(${t('optional')})</span><input class="input" name="date" type="date" value="${esc(c.date || '')}"></label>
+    <div class="pa-grid">
+      <label class="field">${paLbl('paReporterName', true)}<input class="input" name="reporter" autocomplete="off" value="${esc(c.reporter || '')}"></label>
+      ${paRoleFields('reporterRole', c.reporterRole, c.reporterRoleOther)}
     </div>
-    <label class="field">${t('paNotes')} <span class="muted small">(${t('optional')})</span><textarea class="input" name="notes" rows="2" placeholder="${t('paNotesHint')}">${esc(c.notes || '')}</textarea></label>`;
+    <div class="pa-grid">
+      <label class="field">${paLbl('paGame', true)}<select class="select" name="game" data-change="pa-game" ${div ? '' : 'disabled'}>
+        <option value="">—</option>${days.map(d => `<option value="${d}" ${d === c.gameDate ? 'selected' : ''}>${esc(paGameLabel(div, d))}</option>`).join('')}</select></label>
+      <label class="field">${paLbl('paDate', true)}<input class="input" name="date" type="date" value="${esc(c.date || '')}"></label>
+    </div>
+    <label class="field">${paLbl('paRefReport', true)}<textarea class="input" name="refReport" rows="2" placeholder="${t('paNotesHint')}">${esc(c.refReport || c.notes || '')}</textarea></label>
+    <label class="field">${paLbl('staffNotes', true)}<textarea class="input" name="staffNotes" rows="2" placeholder="${t('staffNotesHint')}">${esc(c.staffNotes || '')}</textarea></label>`;
 }
 // Who checked the documents and what they found.
 function paCheckFields(ck = {}) {
-  return `<div class="league-grid">
+  return `<div class="pa-grid">
       <label class="field">${t('paCheckedBy')}<input class="input" name="name" autocomplete="off" value="${esc(ck.name || '')}"></label>
-      <label class="field">${t('paRole')}<input class="input" name="role" autocomplete="off" value="${esc(ck.role || '')}" placeholder="${t('paRoleHint')}"></label>
+      ${paRoleFields('role', PA_ROLES.includes(ck.role) ? ck.role : ck.role ? 'paRoleOther' : '', PA_ROLES.includes(ck.role) ? ck.roleOther : ck.roleOther || ck.role)}
+      <label class="field">${t('paStaff')}<input class="input" name="staff" autocomplete="off" value="${esc(ck.staff || '')}" placeholder="${t('paStaffHint')}"></label>
       <label class="field">${t('paDoc')}<select class="select" name="doc" data-change="pa-doc">
         <option value="" ${ck.doc ? '' : 'selected'} disabled>${t('chooseOne')}</option>
         ${PA_DOCS.map(k => `<option value="${k}" ${k === ck.doc ? 'selected' : ''}>${t(k)}</option>`).join('')}</select></label>
@@ -1148,7 +1165,7 @@ function paCheckFields(ck = {}) {
         <option value="no" ${ck.result === 'no' ? 'selected' : ''}>${t('paNotConfirmed')}</option></select></label>
       <label class="field">${t('paCheckedOn')}<input class="input" name="on" type="date" value="${esc(ck.on || todayISO())}"></label>
     </div>
-    <label class="field">${t('staffNotes')} <span class="muted small">(${t('optional')})</span><textarea class="input" name="checkNotes" rows="2">${esc(ck.notes || '')}</textarea></label>`;
+    <label class="field">${paLbl('staffNotes', true)}<textarea class="input" name="checkNotes" rows="2">${esc(ck.notes || '')}</textarea></label>`;
 }
 function readPaReport(form) {
   const f = new FormData(form);
@@ -1157,13 +1174,19 @@ function readPaReport(form) {
   const [by, byDiv] = byRaw.includes('|') ? byRaw.split('|') : [byRaw, byRaw ? div : ''];
   const gameDate = f.get('game') || '';
   const missing = [[div, 'division'], [player, 'paPlayer'], [team, 'paPlayerTeam']].filter(([ok]) => !ok).map(([, k]) => t(k));
-  return { missing, data: { div, player, team, by, byDiv, gameDate, date: f.get('date') || gameDate, notes: (f.get('notes') || '').trim() } };
+  const reporterRole = f.get('reporterRole') || '';
+  if (reporterRole === 'paRoleOther' && !(f.get('reporterRoleOther') || '').trim()) missing.push(t('paRoleOtherWhat'));
+  return { missing, data: { div, player, team, by, byDiv, gameDate, date: f.get('date') || gameDate, notes: '',
+    refReport: (f.get('refReport') || '').trim(), staffNotes: (f.get('staffNotes') || '').trim(),
+    reporter: (f.get('reporter') || '').trim(), reporterRole, reporterRoleOther: reporterRole === 'paRoleOther' ? (f.get('reporterRoleOther') || '').trim() : '' } };
 }
 function readPaCheck(form) {
   const f = new FormData(form);
-  const ck = { name: (f.get('name') || '').trim(), role: (f.get('role') || '').trim(), doc: f.get('doc') || '', docOther: (f.get('docOther') || '').trim(),
-    result: f.get('result') || '', on: f.get('on') || todayISO(), notes: (f.get('checkNotes') || '').trim() };
-  const missing = [[ck.name, 'paCheckedBy'], [ck.role, 'paRole'], [ck.doc, 'paDoc'], [ck.doc !== 'paDocOther' || ck.docOther, 'paDocOtherWhat'], [ck.result, 'paResult']]
+  const ck = { name: (f.get('name') || '').trim(), role: f.get('role') || '', roleOther: (f.get('roleOther') || '').trim(), staff: (f.get('staff') || '').trim(),
+    doc: f.get('doc') || '', docOther: (f.get('docOther') || '').trim(), result: f.get('result') || '', on: f.get('on') || todayISO(), notes: (f.get('checkNotes') || '').trim() };
+  if (ck.role !== 'paRoleOther') delete ck.roleOther;
+  const missing = [[ck.name, 'paCheckedBy'], [ck.role, 'paRole'], [ck.role !== 'paRoleOther' || ck.roleOther, 'paRoleOtherWhat'], [ck.staff, 'paStaff'],
+    [ck.doc, 'paDoc'], [ck.doc !== 'paDocOther' || ck.docOther, 'paDocOtherWhat'], [ck.result, 'paResult']]
     .filter(([ok]) => !ok).map(([, k]) => t(k));
   if (ck.doc !== 'paDocOther') delete ck.docOther;
   return { missing, ck };
@@ -1211,9 +1234,12 @@ function paCard(c) {
         </span>
       </div>
       <p class="rc-line"><span class="muted">${t('paReportedBy')}:</span> ${esc(by)}</p>
+      ${c.reporter || c.reporterRole ? `<p class="rc-line"><span class="muted">${t('paReporter')}:</span> ${esc(c.reporter || '—')}${c.reporterRole ? ` (${esc(paRoleText(c.reporterRole, c.reporterRoleOther))})` : ''}</p>` : ''}
       ${when ? `<p class="rc-line"><span class="muted">${t('paWhen')}:</span> ${esc(when)}</p>` : ''}
-      ${c.notes ? `<p class="rc-line"><span class="muted">${t('paNotes')}:</span> ${esc(c.notes)}</p>` : ''}
-      ${ck ? `<p class="rc-line"><span class="muted">${t('paCheckedBy')}:</span> ${esc(ck.name)}${ck.role ? ` (${esc(ck.role)})` : ''} · ${fmtDate(ck.on)}</p>
+      ${c.refReport || c.notes ? `<p class="rc-line"><span class="muted">${t('refReport')}:</span> ${esc(c.refReport || c.notes)}</p>` : ''}
+      ${c.staffNotes ? `<p class="rc-line"><span class="muted">${t('staffNotes')}:</span> ${esc(c.staffNotes)}</p>` : ''}
+      ${ck ? `<p class="rc-line"><span class="muted">${t('paCheckedBy')}:</span> ${esc(ck.name)}${ck.role ? ` (${esc(paRoleText(ck.role, ck.roleOther))})` : ''} · ${fmtDate(ck.on)}</p>
+        ${ck.staff ? `<p class="rc-line"><span class="muted">${t('paStaff')}:</span> ${esc(ck.staff)}</p>` : ''}
         <p class="rc-line"><span class="muted">${t('paDoc')}:</span> ${esc(paDocText(c))}</p>
         ${ck.notes ? `<p class="rc-line"><span class="muted">${t('staffNotes')}:</span> ${esc(ck.notes)}</p>` : ''}` : ''}
       ${!ck && ui.paFinish !== c.id && ui.paEdit !== c.id ? `<div class="row-actions"><button type="button" class="btn btn-sm btn-gold" data-action="pa-finish-open" data-id="${c.id}">${t('paFinish')}</button></div>` : ''}
@@ -8618,11 +8644,16 @@ document.addEventListener('change', e => {
     const form = e.target.form, div = e.target.value;
     if (!form.dataset.id) ui.paDiv = div;
     const tmp = document.createElement('div');
-    tmp.innerHTML = paReportFields({ div, player: form.player.value, date: form.date.value, notes: form.notes.value });
+    tmp.innerHTML = paReportFields({ div, player: form.player.value, date: form.date.value });
     ['team', 'by', 'game'].forEach(n => form[n].replaceWith(tmp.querySelector(`[name=${n}]`)));
     return;
   }
   if (e.target.dataset.change === 'pa-game') { if (e.target.value) e.target.form.date.value = e.target.value; return; }
+  if (e.target.dataset.change === 'pa-role') {
+    const box = e.target.closest('.field').nextElementSibling;
+    if (box && box.classList.contains('pa-role-other')) { box.hidden = e.target.value !== 'paRoleOther'; if (!box.hidden) box.querySelector('input').focus(); }
+    return;
+  }
   if (e.target.dataset.change === 'pa-doc') { e.target.form.querySelector('.pa-doc-other').hidden = e.target.value !== 'paDocOther'; return; }
   if (e.target.dataset.change === 'rc-div' || e.target.dataset.change === 'rc-team') {
     // Picking a division fills its teams; picking a team fills its games and player names.
