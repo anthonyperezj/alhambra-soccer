@@ -1687,7 +1687,7 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 /* Standings picture: no outline; 1st place keeps only the thin gold line (drawn as a background, which the
    picture export keeps thin); bold text option */
 .table-img table { border: 0; }
-.table-img tr.top .ti-rank, .table-img tr.top td:first-child { box-shadow: none; background: linear-gradient(90deg, #d4a72c 0 4px, transparent 4px); }
+.table-img tr.top .ti-rank, .table-img tr.top td:first-child { box-shadow: none; background: linear-gradient(90deg, #d4a72c 0 13.6px, transparent 13.6px); }
 .table-img tbody tr.top td.ti-rank { background-color: transparent; }
 .table-img.bold td, .table-img.bold .ti-team, .table-img.bold .ti-club, .table-img.bold .si-who small { font-weight: 800; }
 .table-img.bold th, .scorer-img.bold .si-head { font-weight: 800; }
@@ -1700,8 +1700,8 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .hp-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 14px; }
 .hp-fields textarea { resize: vertical; font-family: inherit; }
 /* Standings picture: silver line for 2nd, bronze for 3rd */
-.table-img tr.second .ti-rank, .table-img tr.second td:first-child { background: linear-gradient(90deg, #b4b4b4 0 4px, transparent 4px); }
-.table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(90deg, #c8864d 0 4px, transparent 4px); }
+.table-img tr.second .ti-rank, .table-img tr.second td:first-child { background: linear-gradient(90deg, #b4b4b4 0 13.6px, transparent 13.6px); }
+.table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(90deg, #c8864d 0 13.6px, transparent 13.6px); }
 /* Form: centered in its column (website and pictures) */
 .table .form-col { text-align: center; }
 .table-img .ti-form, .table-img th.ti-form { text-align: center; }
@@ -1711,3 +1711,4 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 /* Rows of buttons wrap onto a new line instead of running off narrow screens */
 .row-actions { flex-wrap: wrap; }
 .row-actions .btn { max-width: 100%; white-space: normal; text-align: center; }
+/* Save Image standings: the 1st/2nd/3rd lines are 0.1 in (9.6 px) thicker than before (4 px → 13.6 px) */
