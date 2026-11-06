@@ -112,11 +112,116 @@ function diffState(a, b, path = [], out = []) {
   return out;
 }
 
+// Every edit an admin makes shows in History, also small ones that have no message of their own (a goal
+// typed in the Goleadores sheet, a player's name, a team picked on the planner…). Only saves right after
+// the admin clicked or typed count, so updates the site makes by itself (opening a day on the planner) don't.
+let lastUserAct = 0;
+['pointerdown', 'keydown', 'change', 'input', 'submit'].forEach(ev => document.addEventListener(ev, () => { lastUserAct = Date.now(); }, true));
+const AUTO_SKIP = new Set(['withdrawn', 'archivedTeams']);
+function autoLogText(changes, prev, now) {
+  const byId = (list, id) => (list || []).find(x => x.id === id);
+  const out = new Map(); // one line per thing changed: key → text
+  const add = (key, text) => { if (!out.has(key)) out.set(key, text); };
+  // Planner slots that took a game's teams (a game booked or entered on another page) follow that game; the
+  // game itself is what's described ("Game added", "Score…"), so those slots are left out.
+  const rowKey = p => (isObj(p[4]) ? `${p[1]}|${p[2]}|${p[3]}|${p[4].id}` : '');
+  const synced = new Set(changes.filter(c => c.path[0] === 'matchDays' && c.path[5] === 'mid').map(c => rowKey(c.path)));
+  changes.forEach(c => {
+    const [top, a, b, f, row, k] = c.path;
+    if (AUTO_SKIP.has(top)) return;
+    if (top === 'scorers' && isObj(a)) {
+      const sc = byId(now.scorers, a.id) || byId(prev.scorers, a.id);
+      if (!sc) return;
+      const where = `${t('scorers')} · ${divName(sc.div)} · ${sc.team}`;
+      if (!b) return add(`s${a.id}`, `${where}: ${c.after ? t('autoPlayerAdded') : t('autoPlayerRemoved')} ${sc.name}`);
+      if (b === 'name') return add(`s${a.id}n`, `${where}: ${t('autoName')} “${c.before || ''}” → “${c.after || ''}”`);
+      if (b === 'games' || b === 'goals') return add(`s${a.id}g`, `${where} · ${sc.name}: ${t('autoGoals')} ${byId(now.scorers, a.id)?.goals ?? 0}`);
+      return add(`s${a.id}`, `${where} · ${sc.name}: ${t('autoEdited')}`);
+    }
+    if (top === 'matches' && isObj(a)) {
+      const m = byId(now.matches, a.id) || byId(prev.matches, a.id);
+      if (!m) return;
+      const game = `${divName(m.div)} · ${fmtDate(m.date)}: ${m.home} ${t('vs')} ${m.away}`;
+      if (!b) return add(`m${a.id}`, `${c.after ? t('autoGameAdded') : t('autoGameRemoved')} · ${game}`);
+      if (b === 'hs' || b === 'as') return add(`m${a.id}s`, `${t('autoScore')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${m.home} ${m.hs ?? '–'}–${m.as ?? '–'} ${m.away}`);
+      return add(`m${a.id}`, `${t('autoGameEdited')} · ${game}`);
+    }
+    if (top === 'matchDays') {
+      // A day or field's empty time slots appearing is the site, not an edit.
+      if (c.before === undefined && c.path.length <= 4) return;
+      if (synced.has(rowKey(c.path)) || k === 'pinned' || k === 'mid') return;
+      const r = isObj(row) && ((((now.matchDays || {})[a] || {})[b] || {})[f] || []).find(x => x.id === row.id);
+      if (c.path.length === 5 && !(c.after || c.before || {}).home && !(c.after || c.before || {}).div) return;
+      const place = `${t('scheduleBuilder')} · ${fmtDate(a)} · ${FIELDS[f] || f}`;
+      // A slot that only has its division picked so far isn't a change yet; picking the teams is.
+      if (r && !r.home && !r.away && c.before !== undefined && ['div', 'friendly', 'fdiv'].includes(k) && !c.before) return;
+      if (r && ['home', 'away', 'div', 'friendly', 'fdiv'].includes(k)) {
+        const who = r.home || r.away ? `${r.home || '—'} ${t('vs')} ${r.away || '—'}` : t('autoSlotCleared');
+        return add(`d${a}${f}${row.id}`, `${place} · ${fromMin(r.t)}${r.friendly ? ` · ${t('friendly')}` : r.div ? ` · ${divName(r.div)}` : ''}: ${who}`);
+      }
+      if (k === 't') return add(`d${a}${f}t`, `${place}: ${t('autoTimes')}`);
+      return;
+    }
+    if (top === 'teams' && a) {
+      const was = (prev.teams || {})[a] || [], is = (now.teams || {})[a] || [];
+      const plus = is.filter(x => !was.includes(x)), minus = was.filter(x => !is.includes(x));
+      if (!plus.length && !minus.length) return;
+      return add(`t${a}`, `${t('teams')} · ${divName(a)}: ${[...plus.map(x => `+ ${x}`), ...minus.map(x => `− ${x}`)].join(', ')}`);
+    }
+    const label = { rotation: t('rotation'), standingsHidden: t('hideFromStandings'), redCards: t('redCards'), gameLengths: t('gameLength'),
+      fieldsClosed: t('fields'), offDays: t('daysOff'), seasons: t('seasons'), seasonGames: t('gamesInSeason'), settings: t('settings'),
+      regButtons: t('regPageButtons'), regCards: t('regDivCards'), logos: t('teamLogos'), tableImage: t('tableImage'), scorerImage: `${t('tableImage')} · ${t('scorers')}`, playoffs: t('playoffs'), copa: t('copa'), looseTimes: t('strictTimes'),
+      strictTimes: t('strictTimes'), rotationOff: t('rotationAuto'), fieldsAdded: t('fields'), addedFields: t('fields'), leagues: t('seasons') }[top];
+    if (!label) return;
+    if (top === 'regButtons' && !a) {
+      // The first edit makes the whole list at once: describe each group that differs.
+      const was = prev.regButtons || {}, is = now.regButtons || {};
+      Object.keys({ ...was, ...is }).filter(g => !sameJSON((was[g] || regDefaults(g)).map(b => [regLabel(b), b.url]), (is[g] || regDefaults(g)).map(b => [regLabel(b), b.url])))
+        .forEach(g => add(`r${g}`, `${label} · ${g.startsWith('div:') ? divName(g.slice(4)) : t({ hero: 'regTitle', google: 'stepGoogle', contracts: 'stepParent', coaches: 'coaches' }[g] || 'register')}: ${(is[g] || []).map(b => regLabel(b) || '—').join(', ') || t('autoNoButtons')}`));
+      if (Object.keys({ ...was, ...is }).length) return;
+    }
+    if (top === 'regButtons' && a) {
+      const where = a.startsWith('div:') ? divName(a.slice(4)) : t({ hero: 'regTitle', google: 'stepGoogle', contracts: 'stepParent', coaches: 'coaches' }[a] || 'register');
+      const list = ((now.regButtons || {})[a] || []).map(b => b.label || '—').join(', ');
+      return add(`r${a}`, `${label} · ${where}: ${list || t('autoNoButtons')}`);
+    }
+    add(`x${top}${a || ''}`, `${label || top}${a && DIVISIONS.some(d => d.id === a) ? ` · ${divName(a)}` : ''}: ${t('autoEdited')}`);
+  });
+  const lines = [...out.entries()];
+  return { key: lines.map(([k]) => k).join('|'), text: lines.slice(0, 3).map(([, v]) => v).join('; ') + (lines.length > 3 ? ` (+${lines.length - 3})` : '') };
+}
+// Keep one change per spot (the first "before", the last "after"), so a merged entry can still be undone.
+function mergePatches(a, b) {
+  const map = new Map();
+  [...a, ...b].forEach(c => {
+    const k = JSON.stringify(c.path.map(p => (isObj(p) ? p.id : p)));
+    if (map.has(k)) map.get(k).after = c.after; else map.set(k, { ...c });
+  });
+  return [...map.values()].filter(c => !sameJSON(c.before, c.after));
+}
+
 function recordChanges() {
   const now = JSON.parse(JSON.stringify(state));
   if (lastSaved) {
     const known = new Set((lastSaved.log || []).map(e => e.id));
     const fresh = (state.log || []).filter(e => !known.has(e.id) && !e.patch);
+    if (!fresh.length && ui.admin && Date.now() - lastUserAct < 3000) {
+      const changes = diffState(lastSaved, now);
+      const { key, text } = changes.length ? autoLogText(changes, lastSaved, now) : {};
+      if (text && JSON.stringify(changes).length < 400000) {
+        // Quick edits to the same thing by the same person (typing goals one by one) join one entry.
+        const last = (state.log || [])[state.log.length - 1];
+        if (last && last.auto && last.key === key && last.by === (whoName() || undefined) && !last.undone && Date.now() - Date.parse(last.at) < 90000) {
+          last.patch = mergePatches(last.patch || [], changes);
+          last.text = text;
+          last.at = new Date().toISOString();
+        } else {
+          logAction(text);
+          Object.assign(state.log[state.log.length - 1], { patch: changes, auto: true, key });
+        }
+        now.log = JSON.parse(JSON.stringify(state.log));
+      }
+    }
     if (fresh.length) {
       const changes = diffState(lastSaved, now);
       // Very large changes (like starting a season) keep their own undo instead.
@@ -240,10 +345,14 @@ const forfeitStubs = (div, out = withdrawnIn(div), matches = state.matches) => {
 
 // The result that counts for a game: its score, or 3–0 to the other team when it was against a
 // withdrawn team and that was picked. Games left count on the day they were scheduled.
+// "Both teams" forfeited (e.g. a fight): each team loses 3–0, nobody gets points.
+const BOTH = '__both';
+const doubleForfeit = m => m.forfeitBy === BOTH;
 function resultOf(m, out = withdrawnIn(m.div)) {
   // A team that couldn't play that week: 3–0 to the other team (from that day on), no goals for anyone.
   if (m.forfeitBy) {
     if (m.date > todayISO()) return null;
+    if (doubleForfeit(m)) return { hs: 0, as: 0, forfeit: true, double: true };
     const homeLost = m.forfeitBy === m.home;
     return { hs: homeLost ? 0 : 3, as: homeLost ? 3 : 0, forfeit: true };
   }
@@ -556,6 +665,7 @@ function standings(div, matches = state.matches, teams = state.teams[div], out =
     const guest = () => ({ p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, form: [] });
     const h = m.fillerTeam === m.home ? guest() : row(m.home), a = m.fillerTeam === m.away ? guest() : row(m.away);
     h.p++; a.p++;
+    if (m.double) { h.l++; a.l++; h.ga += 3; a.ga += 3; h.form.push('L'); a.form.push('L'); return; }
     h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
     if (m.hs > m.as) { h.w++; a.l++; h.form.push('W'); a.form.push('L'); }
     else if (m.hs < m.as) { a.w++; h.l++; a.form.push('W'); h.form.push('L'); }
@@ -572,12 +682,14 @@ function leaders(div, scorers = state.scorers, past) {
   const out = past ? past.withdrawn || [] : withdrawnIn(div);
   const hide = new Set(out.map(w => w.team));
   const against = new Set(out.filter(w => wOpts(w).dropGoals).map(w => w.team));
+  // Goals typed for a game whose score isn't on the site yet (saved but not published, or not entered) wait
+  // with it, so Goleadores and the standings go up together. Columns line up with the team's games (G1 = first).
+  const waiting = m => !past && m && !m.left && !m.forfeitBy && !played(m);
   const counted = s => {
-    if (!against.size) return s;
-    const games = teamGames(div, s.team, past);
+    const games = colGames(div, s.team, past);
     const goals = s.games.reduce((n, g, i) => {
       const m = games[i];
-      return n + (m && against.has(m.home === s.team ? m.away : m.home) ? 0 : g || 0);
+      return n + ((m && against.has(m.home === s.team ? m.away : m.home)) || waiting(m) ? 0 : g || 0);
     }, 0);
     return goals === s.goals ? s : { ...s, goals };
   };
@@ -906,7 +1018,7 @@ function pageAdminRedCards() {
     return `<article class="card rc-card ${st.done ? 'is-served' : ''}">
       <div class="rc-head">
         <span class="rc-icon" aria-hidden="true"></span>
-        <div><b class="rc-player">${esc(c.player)}</b><span class="muted"> · ${esc(c.team)} · ${esc(divName(c.div))}</span></div>
+        <div><b class="rc-player">${esc(c.player)}</b><span class="muted"> · ${esc(c.team)} · <span class="nowrap">${esc(divName(c.div))}</span></span></div>
         <span class="rc-tools">
           <button type="button" class="btn btn-sm btn-outline" data-action="rc-edit" data-id="${c.id}">${t('editGame')}</button>
           <button type="button" class="icon-btn danger" data-action="ask" data-confirm="rm-redcard" data-id="${c.id}" aria-label="${t('remove')}">×</button>
@@ -1003,7 +1115,7 @@ function pageAdminHistory() {
         <h3>${fmtDate(day, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</h3>
         <ul class="history-list">${items.map(e => `<li class="${e.undone ? 'is-undone' : ''}">
           <span class="h-time">${new Date(e.at).toLocaleTimeString(LANG === 'es' ? 'es-MX' : 'en-US', { hour: 'numeric', minute: '2-digit' })}</span>
-          <span class="h-text">${esc(e.text)}${e.by ? `<small class="h-by"> · ${esc(e.by)}</small>` : ''}</span>
+          <span class="h-text">${esc(e.text)}${e.by ? `<small class="h-by"> · ${esc(nameFromEmail(e.by))}</small>` : ''}</span>
           ${e.patch || e.undo ? e.undone
             ? `<span class="tag">${t('undoneTag')}</span>`
             : `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="log-undo" data-id="${e.id}"
@@ -1110,18 +1222,19 @@ function matchCard(game, showDiv) {
     <div class="match-meta">
       ${showDiv ? `<span class="tag">${esc(divName(m.div))}</span>` : ''}
       ${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}
-      ${m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
-      ${m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
+      ${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
+      ${m.double ? `<span class="tag forfeit">${t('doubleForfeit')}</span>` : m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
       <span>${tbd ? t('newDateTbd') : m.left ? fmtDate(m.date) : `${fmtDate(playedDate(m))}${shownTime(m) ? ` · ${esc(shownTime(m))}` : ''}`}</span>
       ${tbd || m.left ? '' : `<span class="field-name">${esc(shownField(m))}</span>`}
     </div>
     <div class="match-body">
       <span class="team home ${hw ? 'win' : ''}"><span class="team-in"><span class="tn">${esc(m.home)}</span>${publicLogo(m.home, false, m.div)}</span></span>
-      ${done
+      ${m.double ? `<span class="score double-ff" title="${t('bothLose30')}"><b>L</b><i>–</i><b>L</b></span>` : done
         ? `<span class="score"><b>${m.hs}</b><i>–</i><b>${m.as}</b>${m.pens ? `<small class="pens">${t('pensShort')} ${m.pens[0]}–${m.pens[1]}</small>` : ''}</span>`
         : `<span class="score pending">${tbd ? 'TBD' : t('vs')}</span>`}
       <span class="team away ${aw ? 'win' : ''}"><span class="team-in">${publicLogo(m.away, false, m.div)}<span class="tn">${esc(m.away)}</span></span></span>
     </div>
+    ${m.double ? `<p class="double-ff-note">${t('bothLose30')}</p>` : ''}
   </article>`;
 }
 
@@ -1304,7 +1417,7 @@ const pickerDays = (div, publicOnly) => [...new Set([...state.matches.filter(m =
   ...forfeitStubs(div).filter(m => !publicOnly || resultOf(m))].map(m => m.date))].sort();
 
 function gameDayPicker(div, key, publicOnly = false) {
-  const allDays = [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff).map(m => m.date))].sort();
+  const allDays = [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
   const days = pickerDays(div, publicOnly);
   if (ui[key] !== 'all' && !days.includes(ui[key])) ui[key] = days.filter(d => d <= todayISO()).pop() || days[0] || 'all';
   const day = ui[key];
@@ -1994,41 +2107,125 @@ function pageFields() {
   </div>`;
 }
 
-function pageRegister() {
-  const card = d => {
-    const [years, url] = REGISTRATION.forms[d.id] || [];
-    return `<div class="reg-card">
-      <span class="reg-name">${esc(divName(d.id))}</span>
-      ${years ? `<span class="reg-years">${esc(years)}${REGISTRATION.ageChart[d.id] ? ` · ${REGISTRATION.ageChart[d.id][0]}` : ''}</span>` : ''}
-      ${url
-        ? `<a class="btn btn-gold btn-sm" href="${url}" target="_blank" rel="noopener">${t('registerBtn')} ↗</a>`
-        : `<span class="reg-soon">${t('formSoon')}</span>`}
-    </div>`;
+// ---------- Register page buttons ----------
+// Every button on the Register page belongs to a group (the top box, a step, a division's card, coaches).
+// A group someone edited is saved in state.regButtons and replaces the built-in buttons; otherwise the
+// built-in ones show (in the visitor's language). A link starting with # scrolls on the page.
+function regDefaults(group) {
+  const b = (label, url) => ({ id: `d-${group}-${label}`, label: '', key: label, url });
+  if (group === 'hero') return [b('chooseDivision', '#reg-divisions'), b('readFirst', '#reg-before')];
+  if (group === 'google') return [b('googleTutorial', REGISTRATION.googleTutorial), b('createGoogle', REGISTRATION.googleSignup)];
+  if (group === 'contracts') return [{ id: 'd-contracts-en', label: 'Adult / Parent Contract (English)', url: REGISTRATION.contractEn }, { id: 'd-contracts-es', label: 'Contrato De Papás / Adultos (Español)', url: REGISTRATION.contractEs }];
+  if (group === 'coaches') return [b('registerBtn', REGISTRATION.coaches)];
+  if (group.startsWith('div:')) { const url = (REGISTRATION.forms[group.slice(4)] || [])[1]; return url ? [b('registerBtn', url)] : []; }
+  return [];
+}
+const regButtons = group => ((state.regButtons || {})[group] || regDefaults(group));
+const regLabel = b => b.label || (b.key ? t(b.key) : '');
+function regButtonsHTML(group, cls = 'btn btn-gold btn-sm', extra = '') {
+  const list = regButtons(group);
+  const one = (b, i) => {
+    const inPage = (b.url || '').startsWith('#');
+    const c = group === 'hero' && i > 0 ? 'btn btn-ghost' : group === 'google' || group === 'contracts' ? '' : cls;
+    return `<a ${c ? `class="${c}"` : ''} href="${esc(b.url || '#')}" ${inPage ? `data-scroll="${esc(b.url.slice(1))}"` : 'target="_blank" rel="noopener"'}>${esc(regLabel(b))}${inPage ? (group === 'hero' && i === 0 ? ' ↓' : '') : ' ↗'}</a>`;
   };
-  // Oldest to youngest, the way the registration page has always listed them.
-  const group = g => DIVISIONS.filter(d => d.group === g).sort((a, b) => (g === 'youth' ? divAge(b) - divAge(a) : 0));
+  return list.length ? `<span class="reg-btns ${extra}">${list.map(one).join('')}</span>` : group.startsWith('div:') ? `<span class="reg-soon">${t('formSoon')}</span>` : '';
+}
+// ---------- Register page division cards ----------
+// Each division (and Coaches) is a card with a title, a description and one Register button. The built-in
+// cards come from the leagues; admins can change a card's text and link (state.regCards.edits), add cards of
+// their own (state.regCards.added) and take cards off the page (state.regCards.removed).
+const REG_SECTIONS = [['youth', 'youth'], ['adult', 'adults'], ['futsal', 'futsal'], ['coaches', 'coaches']];
+const regCardsState = () => ({ edits: {}, added: [], removed: [], ...(state.regCards || {}) });
+// The link a built-in card starts with (an older edit of its button counts).
+const regStartUrl = group => (regButtons(group)[0] || {}).url || '';
+function regCardDefaults(section) {
+  if (section === 'coaches') return [{ id: 'coaches', title: t('coaches'), desc: '', url: regStartUrl('coaches') }];
+  return DIVISIONS.filter(d => d.group === section).sort((a, b) => (section === 'youth' ? divAge(b) - divAge(a) : 0)).map(d => {
+    const [years] = REGISTRATION.forms[d.id] || [];
+    return { id: `div:${d.id}`, title: divName(d.id), desc: years ? `${years}${REGISTRATION.ageChart[d.id] ? ` · ${REGISTRATION.ageChart[d.id][0]}` : ''}` : '', url: regStartUrl(`div:${d.id}`) };
+  });
+}
+function regCards(section) {
+  const s = regCardsState();
+  const mine = c => { const e = s.edits[c.id] || {}; return { ...c, ...e, title: e.title || c.title, def: c, builtIn: true }; };
+  return [...regCardDefaults(section).filter(c => !s.removed.includes(c.id)).map(mine), ...s.added.filter(c => c.section === section)];
+}
+function regCardHTML(c) {
+  const url = c.url || '', inPage = url.startsWith('#');
+  return `<div class="reg-card">
+      <span class="reg-name">${esc(c.title)}</span>
+      ${c.desc ? `<span class="reg-years">${esc(c.desc)}</span>` : ''}
+      ${url ? `<span class="reg-btns"><a class="btn btn-gold btn-sm" href="${esc(url)}" ${inPage ? `data-scroll="${esc(url.slice(1))}"` : 'target="_blank" rel="noopener"'}>${t('registerBtn')}${inPage ? '' : ' ↗'}</a></span>` : `<span class="reg-soon">${t('formSoon')}</span>`}
+    </div>`;
+}
+function regCardEditHTML(c) {
+  const f = (k, label, ph = '') => `<label class="field">${t(label)}<input class="input" data-change="reg-card" data-f="${k}" value="${esc(c[k] || '')}" placeholder="${esc(ph)}"></label>`;
+  return `<section class="card reg-admin-card" data-reg-card="${esc(c.id)}">
+      <div class="reg-card-fields">${f('title', 'regCardTitle', c.def ? c.def.title : '')}${f('desc', 'regCardDesc', t('regCardDescPh'))}${f('url', 'regBtnLink', 'https://…')}</div>
+      <p class="muted reg-card-note">${c.url ? `${t('regCardButton')}: <b>${t('registerBtn')}</b>` : t('regCardNoLink')}</p>
+      <button type="button" class="link-btn small danger" data-action="ask" data-confirm="reg-card-rm" data-id="${esc(c.id)}" data-ask="regCardRmQ">${t('regCardRemove')}</button>
+    </section>`;
+}
+// Admin → Register page: one box per group of buttons, each button's text and link, × and ＋.
+function regEditHTML(group) {
+  const list = regButtons(group);
+  return `<div class="reg-edit" data-reg-group="${esc(group)}">
+      ${list.map(b => `<div class="reg-edit-row" data-id="${esc(b.id)}">
+        <input class="input" data-change="reg-btn" data-f="label" value="${esc(regLabel(b))}" placeholder="${t('regBtnText')}" aria-label="${t('regBtnText')}">
+        <input class="input" data-change="reg-btn" data-f="url" value="${esc(b.url || '')}" placeholder="https://…" aria-label="${t('regBtnLink')}">
+        <button type="button" class="icon-btn danger" data-action="reg-btn-rm" aria-label="${t('remove')}">×</button></div>`).join('') || `<p class="muted">${t(group.startsWith('div:') ? 'regNoButtonsDiv' : 'autoNoButtons')}</p>`}
+      <button type="button" class="link-btn small" data-action="reg-btn-add">＋ ${t('regAddButton')}</button>
+    </div>`;
+}
+function pageAdminRegister() {
+  const box = (title, group, sub = '') => `<section class="card reg-admin-card"><h3>${esc(title)}${sub ? ` <span class="muted">${esc(sub)}</span>` : ''}</h3>${regEditHTML(group)}</section>`;
+  return adminShell('admin/regpage', `
+    <h1 class="page-title">${t('regPageButtons')}</h1>
+    <p class="note">${t('regAdminHelp')} <a href="#/register" target="_blank" rel="noopener">${t('regViewPage')} ↗</a></p>
+    ${box(t('regTopBox'), 'hero')}
+    ${box(t('stepGoogle'), 'google', t('regStepNote'))}
+    ${box(t('stepParent'), 'contracts', t('regStepNote'))}
+    <h2 class="section-title">${t('chooseDivision')}</h2>
+    <p class="note">${t('regCardsHelp')}</p>
+    ${REG_SECTIONS.map(([sec, l]) => `<h3 class="reg-group">${t(l)}</h3>
+      <div class="reg-admin-grid">${regCards(sec).map(regCardEditHTML).join('')}</div>
+      <button type="button" class="btn btn-outline btn-sm reg-add-card" data-action="reg-card-add" data-section="${sec}">＋ ${t('regAddDivision')}</button>`).join('')}
+    ${state.regButtons || state.regCards ? `<div class="row-actions"><button type="button" class="btn btn-outline danger-outline" data-action="ask" data-confirm="reg-reset" data-ask="regResetQ">${t('regReset')}</button></div>` : ''}`);
+}
+// Read a group's rows back from the page (the built-in buttons become the group's own list on first edit).
+function saveRegGroup(box) {
+  const group = box.dataset.regGroup;
+  const before = regButtons(group);
+  const list = [...box.querySelectorAll('.reg-edit-row')].map(row => {
+    const was = before.find(b => b.id === row.dataset.id) || {};
+    return { id: was.id && !was.id.startsWith('d-') ? was.id : `b${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`,
+      label: row.querySelector('[data-f=label]').value.trim(), url: row.querySelector('[data-f=url]').value.trim() };
+  });
+  state.regButtons = { ...(state.regButtons || {}), [group]: list };
+  save();
+  render();
+}
+
+function pageRegister() {
   return `
   <div class="wrap page">
     <div class="register-card">
+      <div class="reg-art" aria-hidden="true">${TROPHY}${TROPHY}${TROPHY}</div>
       <p class="eyebrow">${t('register')}</p>
       <h1>${t('regTitle')}</h1>
       <p class="lead">${t('regSub')}</p>
-      <div class="actions">
-        <a class="btn btn-gold" href="#reg-divisions" data-scroll="reg-divisions">${t('chooseDivision')} ↓</a>
-        <a class="btn btn-ghost" href="#reg-before" data-scroll="reg-before">${t('readFirst')}</a>
-      </div>
+      <div class="actions">${regButtonsHTML('hero', 'btn btn-gold')}</div>
     </div>
 
     <section class="reg-section" id="reg-before">
       <h2 class="section-title">${t('readFirst')}</h2>
       <ol class="steps">
         <li><b>${t('stepGoogle')}</b><p>${t('stepGoogleText')}</p>
-          <p class="step-links"><a href="${REGISTRATION.googleTutorial}" target="_blank" rel="noopener">▶ ${t('googleTutorial')} ↗</a>
-          <a href="${REGISTRATION.googleSignup}" target="_blank" rel="noopener">${t('createGoogle')} ↗</a></p></li>
+          <p class="step-links">${regButtonsHTML('google')}</p></li>
         <li><b>${t('stepPhoto')}</b><p>${t('stepPhotoText')}</p></li>
         <li><b>${t('stepParent')}</b><p>${t('stepParentText')}</p>
-          <p class="step-links"><a href="${REGISTRATION.contractEn}" target="_blank" rel="noopener">📄 Adult / Parent Contract (English) ↗</a>
-          <a href="${REGISTRATION.contractEs}" target="_blank" rel="noopener">📄 Contrato De Papás / Adultos (Español) ↗</a></p></li>
+          <p class="step-links">${regButtonsHTML('contracts')}</p></li>
       </ol>
     </section>
 
@@ -2040,15 +2237,8 @@ function pageRegister() {
 
     <section class="reg-section" id="reg-divisions">
       <h2 class="section-title">${t('chooseDivision')}</h2>
-      <h3 class="reg-group">${t('youth')}</h3>
-      <div class="reg-grid">${group('youth').map(card).join('')}</div>
-      <h3 class="reg-group">${t('adults')}</h3>
-      <div class="reg-grid">${group('adult').map(card).join('')}</div>
-      <h3 class="reg-group">${t('futsal')}</h3>
-      <div class="reg-grid">${group('futsal').map(card).join('')}</div>
-      <h3 class="reg-group">${t('coaches')}</h3>
-      <div class="reg-grid"><div class="reg-card"><span class="reg-name">${t('coaches')}</span>
-        <a class="btn btn-gold btn-sm" href="${REGISTRATION.coaches}" target="_blank" rel="noopener">${t('registerBtn')} ↗</a></div></div>
+      ${REG_SECTIONS.map(([sec, l]) => (regCards(sec).length ? `<h3 class="reg-group">${t(l)}</h3>
+      <div class="reg-grid">${regCards(sec).map(regCardHTML).join('')}</div>` : '')).join('')}
     </section>
 
     <section class="reg-section" id="reg-docs">
@@ -2200,7 +2390,7 @@ function startNewSeason(name, divs) {
         id: `${div}-${Date.now()}`, div, name: seasonName(div), archived: today, games: gameColumns(div),
         teams: [...(state.teams[div] || [])],
         matches: done.map(m => ({ ...m })),
-        scorers: scorers.map(s => ({ ...s, games: [...s.games] })),
+        scorers: scorers.map(s => ({ ...s, games: [...s.games] })), scorerCols: 'league',
         withdrawn: withdrawnIn(div).map(w => ({ ...clone(w), left: (w.left || []).filter(m => m.date < today) })),
         ...(playoffsOf(div) ? { playoffs: clone(playoffsOf(div)), champion: (bracket(div) || {}).champion || '' } : {}),
         ...(copaOf(div) ? { copa: clone(copaOf(div)), copaChampion: (bracket(div, 'copa') || {}).champion || '' } : {}),
@@ -2766,7 +2956,7 @@ function stageCell(divs) {
 function pageAdminSeasons() {
   const units = seasonUnits();
   const pending = ui.newSeason;
-  const daysPlayed = u => Math.max(...u.divs.map(d => new Set(state.matches.filter(m => m.div === d && played(m) && !m.playoff).map(m => m.date)).size));
+  const daysPlayed = u => Math.max(...u.divs.map(d => new Set(state.matches.filter(m => m.div === d && played(m) && !m.playoff && !m.fromFriendly).map(m => m.date)).size));
   const youthDivs = DIVISIONS.filter(isYouthAge);
   // "End season" marks the final standings; "Reopen" undoes it. Starting a new season clears it.
   const endCell = (key, divs) => divs.every(seasonEnded)
@@ -2883,7 +3073,7 @@ function pageArchive() {
     ${archiveListHTML() || empty(t('noArchive'))}
   </div>`;
   }
-  const days = [...new Set(a.matches.filter(m => !m.playoff).map(m => m.date))].sort();
+  const days = [...new Set(a.matches.filter(m => !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
   const champs = [a.champion && `${t('champion')}: <b>${esc(a.champion)}</b>`, a.copaChampion && `${t('copa')} · ${t('champion')}: <b>${esc(a.copaChampion)}</b>`].filter(Boolean);
   return `
   <div class="wrap page">
@@ -2910,18 +3100,20 @@ function adminShell(active, body) {
   const groups = [
     ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards']]],
     ['navSeason', [['admin/teamgames', 'teamGames'], ['admin/teams', 'teams'], ['admin/rotation', 'rotation'], ['admin/playoffs', 'playoffs'], ['admin/tournaments', 'tournaments'], ['admin/seasons', 'seasons']]],
-    ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage']]],
+    ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage'], ['admin/regpage', 'regPageButtons']]],
   ];
   // On a phone or tablet the list drops down from the ☰ in the black header, like the public site's menu.
   return `
   <div class="admin">
     <aside class="admin-nav ${ui.adminMenuOpen ? 'open' : ''}">
       ${groups.map(([g, l]) => `<p class="nav-group">${t(g)}</p>${l.map(([r, k]) => `<a href="#/${r}" class="${r === active ? 'active' : ''}">${t(k)}</a>`).join('')}`).join('')}
+
       ${whoName() ? `<p class="signed-in">${t('signedInAs')} <b>${esc(whoName())}</b></p>` : ''}
       <a class="nav-view-site" href="#/" target="_blank" rel="noopener">${t('viewSite')} ↗</a>
       <button class="link-btn" data-action="signout">${t('signOut')}</button>
     </aside>
     <section class="admin-main">
+      ${cloudOn() && CLOUD.user && !CLOUD.user.displayName && active !== 'admin/settings' ? `<div class="demo-banner name-banner"><span>${t('addYourName')}</span><a class="btn btn-sm btn-outline" href="#/admin/settings">${t('settings')} →</a></div>` : ''}
       ${cloudOn() ? '' : `<div class="demo-banner"><span>${t('demoBanner')}</span><button class="btn btn-sm btn-outline" data-action="reset">${t('resetDemo')}</button></div>`}
       ${body}
     </section>
@@ -2954,9 +3146,31 @@ const writeWho = v => {
 // The name shown for whoever is signed in (an account's name, or the email used for the demo sign-in).
 // Online (Firebase) sign-in is on: accounts live in Firebase instead of this browser.
 const cloudOn = () => typeof CLOUD !== 'undefined' && CLOUD.on;
+// History shows people's names, never their email. Names come from each admin's account ("Your name in
+// History" in Settings), or from older "Admin added: Name (email)" lines; otherwise the part before the @.
+function knownNames() {
+  const map = {};
+  (state.log || []).forEach(e => { const m = /^[^:]*: (.+) \((\S+@\S+)\)$/.exec(e.text || ''); if (m) map[m[2].toLowerCase()] = m[1]; });
+  Object.entries(state.adminNames || {}).forEach(([k, v]) => { if (v) map[k.toLowerCase()] = v; });
+  if (cloudOn() && CLOUD.user && CLOUD.user.displayName) map[CLOUD.user.email.toLowerCase()] = CLOUD.user.displayName;
+  return map;
+}
+const nameFromEmail = who => (who && who.includes('@') ? knownNames()[who.toLowerCase()] || who.split('@')[0] : who || '');
+// Emails written into History before: swap them for names (History is part of the shared league data).
+function scrubLogEmails() {
+  let changed = false;
+  const names = knownNames();
+  (state.log || []).forEach(e => {
+    if (e.by && e.by.includes('@')) { e.by = names[e.by.toLowerCase()] || e.by.split('@')[0]; changed = true; }
+    const clean = (e.text || '').replace(/ \(\S+@\S+\)$/, '');
+    if (clean !== e.text) { e.text = clean; changed = true; }
+  });
+  if (state.adminNames) { delete state.adminNames; changed = true; }
+  return changed;
+}
 function whoName() {
   const who = readWho();
-  if (cloudOn()) return (state.adminNames || {})[who] || who;
+  if (cloudOn()) return (CLOUD.user && CLOUD.user.displayName) || (state.adminNames || {})[who] || nameFromEmail(who);
   const a = admins().find(x => x.id === who);
   return a ? a.name : who;
 }
@@ -2983,7 +3197,7 @@ function myAccountHTML() {
       <p class="note">${t('adminsCloudHelp')}</p>
       <p>${t('signedInAs')} <b>${esc(email)}</b></p>
       <div class="league-grid">
-        <label class="field">${t('yourName')}<input class="input" name="myName" value="${esc((state.adminNames || {})[email] || '')}" placeholder="${esc(email.split('@')[0])}" autocomplete="off"></label>
+        <label class="field">${t('yourName')}<input class="input" name="myName" value="${esc((CLOUD.user && CLOUD.user.displayName) || '')}" placeholder="${esc(t('yourNamePlaceholder'))}" autocomplete="off"></label>
         <label class="field">${t('newPasswordOptional')}${pwInput('newPassword', 'new-password')}</label>
       </div>
       <p class="warn" hidden></p>
@@ -2994,9 +3208,10 @@ async function saveMyAccount(form) {
   const email = readWho(), name = form.myName.value.trim(), pw = form.newPassword.value;
   const warn = form.querySelector('.warn');
   if (pw && pw.length < 6) { warn.textContent = t('passwordShort'); warn.hidden = false; return; }
-  if (name !== ((state.adminNames || {})[email] || '')) {
-    state.adminNames = { ...(state.adminNames || {}), [email]: name };
-    if (!name) delete state.adminNames[email];
+  if (name !== ((CLOUD.user && CLOUD.user.displayName) || '')) {
+    try { await CLOUD.auth.currentUser.updateProfile({ displayName: name || null }); } catch (e) { warn.textContent = t('pwChangeFailed'); warn.hidden = false; return; }
+    // Their earlier History lines (under their email) take the name too.
+    (state.log || []).forEach(x => { if (x.by && x.by.toLowerCase() === email.toLowerCase()) x.by = name || email.split('@')[0]; });
     save();
   }
   if (pw) {
@@ -3165,41 +3380,139 @@ function pensBoxHTML(m) {
   const n = bracketNodes(bracket(m.div, cupOfGame(m.playoff))).find(x => x.round === m.playoff.round && x.slot === m.playoff.slot);
   if (!n || m.playoff.leg < n.legs) return '';
   return `<div class="pens-row"><span class="muted">${t('penaltiesIfTied')}</span>
-    <input class="input score-in small" name="ph" type="number" min="0" inputmode="numeric" value="${m.pens ? m.pens[0] : ''}" aria-label="${t('penalties')} ${esc(m.home)}">
+    <input class="input score-in small" name="ph" type="number" min="0" inputmode="numeric" value="${scoreNow(m).pens ? scoreNow(m).pens[0] : ''}" aria-label="${t('penalties')} ${esc(m.home)}">
     <span class="dash">–</span>
-    <input class="input score-in small" name="pa" type="number" min="0" inputmode="numeric" value="${m.pens ? m.pens[1] : ''}" aria-label="${t('penalties')} ${esc(m.away)}"></div>`;
+    <input class="input score-in small" name="pa" type="number" min="0" inputmode="numeric" value="${scoreNow(m).pens ? scoreNow(m).pens[1] : ''}" aria-label="${t('penalties')} ${esc(m.away)}"></div>`;
+}
+
+// Scores have two steps. Save keeps the typed score on the game (m.draft) without showing it on the site;
+// Publish puts it on the site (m.hs / m.as). The boxes show the saved score if there is one.
+const scoreNow = m => (m.draft ? m.draft : played(m) ? { hs: m.hs, as: m.as, ...(m.pens ? { pens: m.pens } : {}) } : { hs: null, as: null });
+const sameScore = (x, y) => x.hs === y.hs && x.as === y.as && JSON.stringify(x.pens || null) === JSON.stringify(y.pens || null);
+// What the boxes say, or null while only one side is typed.
+function readScoreForm(form) {
+  const val = el => (el && el.value !== '' ? +el.value : null);
+  const hs = val(form.hs), as = val(form.as);
+  if ((hs === null) !== (as === null)) return null;
+  const out = { hs, as };
+  if (form.ph && hs !== null) {
+    const ph = val(form.ph), pa = val(form.pa);
+    if (ph !== null && pa !== null && ph !== pa) out.pens = [ph, pa];
+  }
+  return out;
+}
+const scoreText = (m, v) => `${divName(m.div)}: ${m.home} ${v.hs ?? '–'}–${v.as ?? '–'} ${m.away}`;
+// Save without publishing. Returns the game, or null if nothing was saved.
+function draftScoreForm(form) {
+  const m = state.matches.find(x => x.id === +form.dataset.id), v = readScoreForm(form);
+  if (!m || !v) return null;
+  const pub = played(m) ? { hs: m.hs, as: m.as, ...(m.pens ? { pens: m.pens } : {}) } : { hs: null, as: null };
+  if (sameScore(v, pub) || (v.hs === null && !played(m))) {
+    if (!m.draft) return null;
+    delete m.draft; // back to what the site shows
+  } else if (m.draft && sameScore(v, m.draft)) return null;
+  else m.draft = v;
+  logAction(`${t('logScoreDraft')} · ${scoreText(m, v)}`);
+  return m;
+}
+// Publish: the boxes' score goes on the site. Returns the game, or null if nothing changed.
+function applyScoreForm(form) {
+  const m = state.matches.find(x => x.id === +form.dataset.id), v = readScoreForm(form);
+  if (!m || !v) return null;
+  const pub = played(m) ? { hs: m.hs, as: m.as, ...(m.pens ? { pens: m.pens } : {}) } : { hs: null, as: null };
+  if (sameScore(v, pub) && !m.draft) return null;
+  m.hs = v.hs; m.as = v.as;
+  if (v.pens) m.pens = v.pens; else delete m.pens;
+  delete m.draft;
+  logAction(`${t('logScorePublished')} · ${scoreText(m, v)}`);
+  return m;
+}
+// Unpublish: the score comes off the site but stays saved (Not published), so it can go back up later.
+// A score typed in the boxes is the one kept.
+function unpublishScoreForm(form) {
+  const m = state.matches.find(x => x.id === +form.dataset.id);
+  if (!m || !played(m)) return null;
+  const typed = readScoreForm(form);
+  const keep = typed && typed.hs !== null && scoreFormChanged(form) ? typed : m.draft || { hs: m.hs, as: m.as, ...(m.pens ? { pens: m.pens } : {}) };
+  logAction(`${t('logScoreUnpublished')} · ${scoreText(m, { hs: m.hs, as: m.as })}`);
+  m.draft = keep;
+  m.hs = null; m.as = null; delete m.pens;
+  return m;
+}
+// Published, nothing typed or saved since: the game's button says Unpublish instead of Publish.
+const isPublishedClean = (m, form) => played(m) && !m.draft && !scoreFormChanged(form);
+// A score row whose boxes differ from what's saved.
+function scoreFormChanged(form) {
+  const m = state.matches.find(x => x.id === +form.dataset.id);
+  if (!m || !form.hs) return false;
+  const v = readScoreForm(form);
+  return !v || !sameScore(v, scoreNow(m));
+}
+// The bar under the games: tick games (typing a score ticks its game), then Save or Publish them together.
+const saveAllBarHTML = () => `<div class="save-all-bar" hidden>
+  <label class="sab-all"><input type="checkbox" data-change="score-pick-all"><span>${t('selectAll')}</span></label>
+  <span class="sab-count"></span>
+  <span class="sab-btns"><button type="button" class="btn btn-outline" data-action="scores-bulk" data-mode="draft" disabled>${t('save')}</button>
+  <button type="button" class="btn btn-gold" data-action="scores-bulk" data-mode="publish" disabled>${t('publish')}</button>
+  <button type="button" class="btn btn-outline sab-unpub" data-action="scores-bulk" data-mode="unpublish" disabled>${t('unpublish')}</button></span></div>`;
+const scorePicks = () => (ui.scorePicks = ui.scorePicks || new Set());
+function refreshSaveAll() {
+  const bar = document.querySelector('.save-all-bar');
+  const forms = [...document.querySelectorAll('form.score-row')];
+  forms.forEach(f => {
+    f.classList.toggle('unsaved', scoreFormChanged(f));
+    const box = f.querySelector('[data-change=score-pick]');
+    if (box) box.checked = scorePicks().has(+f.dataset.id);
+    const m = state.matches.find(x => x.id === +f.dataset.id), clean = !!m && isPublishedClean(m, f);
+    const pub = f.querySelector('[data-action=score-publish]'), un = f.querySelector('[data-action=score-unpublish]');
+    if (pub && un) { pub.hidden = clean; un.hidden = !clean; }
+  });
+  if (!bar) return;
+  const picked = forms.filter(f => scorePicks().has(+f.dataset.id));
+  bar.hidden = !forms.length;
+  bar.querySelector('[data-change=score-pick-all]').checked = forms.length > 0 && picked.length === forms.length;
+  bar.querySelectorAll('[data-action=scores-bulk]').forEach(b => { b.disabled = !picked.length; });
+  const pickedLive = picked.some(f => played(state.matches.find(x => x.id === +f.dataset.id) || {}));
+  bar.querySelector('[data-mode=unpublish]').disabled = !pickedLive;
+  const unsaved = picked.filter(scoreFormChanged).length;
+  bar.querySelector('.sab-count').textContent = picked.length
+    ? `${t('pickedMany').replace('{n}', picked.length)}${unsaved ? ` · ${t(unsaved === 1 ? 'unsavedOne' : 'unsavedMany').replace('{n}', unsaved)}` : ''}`
+    : t('pickNone');
 }
 
 // One game on Enter scores / Team games: score boxes, Edit, Notes, Delete and Postponed.
 function scoreRowHTML(m) {
   if (m.forfeitBy) {
     const winner = m.forfeitBy === m.home ? m.away : m.home;
-    return `<div class="forfeit-line"><span class="tag forfeit">${t('forfeit')}</span>
-      <span><b>${esc(winner)}</b> ${t('wins30')} <small class="muted">— ${esc(m.forfeitBy)} ${t('forfeitedWord')}${m.date > todayISO() ? ` (${t('countsOn')} ${fmtDate(m.date)})` : ''}</small></span>
+    return `<div class="forfeit-line"><span class="tag forfeit">${t(doubleForfeit(m) ? 'doubleForfeit' : 'forfeit')}</span>
+      <span>${doubleForfeit(m) ? `<b>${esc(m.home)}</b> ${t('and')} <b>${esc(m.away)}</b> ${t('bothLose30Lower')}<small class="muted">` : `<b>${esc(winner)}</b> ${t('wins30')} <small class="muted">— ${esc(m.forfeitBy)} ${t('forfeitedWord')}`}${m.date > todayISO() ? ` (${t('countsOn')} ${fmtDate(m.date)})` : ''}</small></span>
       <button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="rm-forfeit-game" data-ask="${m.forfeitFrom ? 'askBackToGame' : 'askRmForfeit'}" data-yes="${m.forfeitFrom ? 'yesBack' : 'yesRemove'}" data-id="${m.id}">${t(m.forfeitFrom ? 'backToGame' : 'remove')}</button></div>`;
   }
   return `
       <form class="score-row ${played(m) ? '' : 'open'}" data-form="score" data-id="${m.id}" data-league="${m.div}">
-        <div class="row-meta">${m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}: ${esc(m.fillerTeam)} · ${t('insteadOf')} ${esc(m.filler.gone)}</span>` : ''}${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}${resultOf(m)?.forfeit ? `<span class="tag forfeit">${t('countsAsForfeit')}</span>` : ''}${postponedTag(m)} ${m.playedOn
+        <div class="row-meta"><label class="pick-score" title="${t('selectGame')}"><input type="checkbox" data-change="score-pick" aria-label="${t('selectGame')}"></label>${m.draft ? `<span class="tag draft-tag">${t('notPublished')}${played(m) ? ` · ${t('onSite')} ${m.hs}–${m.as}` : ''}</span>` : ''}${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}: ${esc(m.fillerTeam)} · ${t('insteadOf')} ${esc((m.filler || {}).gone || '')}</span>` : ''}${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}${resultOf(m)?.forfeit ? `<span class="tag forfeit">${t('countsAsForfeit')}</span>` : ''}${postponedTag(m)} ${m.playedOn
           ? `${t('playedOn')} ${fmtDate(m.playedOn)}${m.playedTime ? ` · ${esc(m.playedTime)}` : ''} <span class="muted">(${t('gameDayOf')} ${fmtDate(m.date)} · ${esc(m.time)})</span>`
           : `${fmtDate(m.date)} · ${esc(m.time)}`} · ${esc(shownField(m))}</div>
         <div class="row-main">
           <span class="t-home"><span class="t-in"><span>${esc(m.home)}</span>${publicLogo(m.home, false, m.div)}</span></span>
-          <input class="input score-in" name="hs" type="number" min="0" inputmode="numeric" value="${played(m) ? m.hs : ''}" aria-label="${esc(m.home)}">
+          <input class="input score-in" name="hs" type="number" min="0" inputmode="numeric" value="${scoreNow(m).hs ?? ''}" aria-label="${esc(m.home)}">
           <span class="dash">–</span>
-          <input class="input score-in" name="as" type="number" min="0" inputmode="numeric" value="${played(m) ? m.as : ''}" aria-label="${esc(m.away)}">
+          <input class="input score-in" name="as" type="number" min="0" inputmode="numeric" value="${scoreNow(m).as ?? ''}" aria-label="${esc(m.away)}">
           <span class="t-away"><span class="t-in">${publicLogo(m.away, false, m.div)}<span>${esc(m.away)}</span></span></span>
         </div>
         <div class="row-actions">
-          <button type="submit" class="btn btn-sm btn-gold">${t('save')}</button>
+          <button type="submit" class="btn btn-sm btn-outline">${t('save')}</button>
+          <button type="button" class="btn btn-sm btn-gold" data-action="score-publish" ${played(m) && !m.draft ? 'hidden' : ''}>${t('publish')}</button>
+          <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="score-unpublish" ${played(m) && !m.draft ? '' : 'hidden'}>${t('unpublish')}</button>
           <button type="button" class="btn btn-sm btn-outline" data-action="edit-game" data-id="${m.id}" aria-expanded="${ui.editGame === m.id}">${t('editGame')}</button>
           <button type="button" class="btn btn-sm btn-outline ${m.refReport || m.adminNotes ? 'has-notes' : ''}" data-action="toggle-notes" data-id="${m.id}" aria-expanded="${ui.notesOpen === m.id}">${t('notes')}${m.refReport || m.adminNotes ? ' •' : ''}</button>
-          ${m.fillerTeam ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>` : ''}
-          ${!played(m) && !m.fillerTeam && !m.playoff ? `<button type="button" class="btn btn-sm btn-outline" data-action="forfeit-open" data-id="${m.id}" aria-expanded="${ui.forfeitGame === m.id}">${t('forfeitGameBtn')}</button>` : ''}
+          ${m.fillerTeam && !m.fromFriendly ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>` : ''}
+          ${!played(m) && !m.fillerTeam && !m.playoff && !m.fromFriendly ? `<button type="button" class="btn btn-sm btn-outline" data-action="forfeit-open" data-id="${m.id}" aria-expanded="${ui.forfeitGame === m.id}">${t('forfeitGameBtn')}</button>` : ''}
           <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="ask" data-confirm="rm-match" data-id="${m.id}">${t('deleteMatch')}</button>
         </div>
         ${pensBoxHTML(m)}
-        ${ui.forfeitGame === m.id ? `<div class="pens-row"><span class="muted">${t('whoForfeited')}</span>${[m.home, m.away].map(x => `<button type="button" class="btn btn-sm btn-outline danger-outline" data-action="forfeit-game" data-id="${m.id}" data-team="${esc(x)}">${esc(x)}</button>`).join('')}</div>` : ''}
+        ${ui.forfeitGame === m.id ? `<div class="pens-row"><span class="muted">${t('whoForfeited')}</span>${[m.home, m.away].map(x => `<button type="button" class="btn btn-sm btn-outline danger-outline" data-action="forfeit-game" data-id="${m.id}" data-team="${esc(x)}">${esc(x)}</button>`).join('')}
+          <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="forfeit-game" data-id="${m.id}" data-team="${BOTH}" title="${t('bothLose30')}">${t('bothTeams')}</button></div>` : ''}
         ${ui.editGame === m.id ? editGameHTML(m) : ''}
         ${ui.notesOpen === m.id ? notesHTML(m) : ''}
         <div class="postpone-row">
@@ -3265,7 +3578,7 @@ function pageAdminTeamGames() {
   const plan = rotationPlan(div, team, toPlay);
   const result = m => {
     const r = resultOf(m);
-    const mine = m.home === team ? r.hs : r.as, theirs = m.home === team ? r.as : r.hs;
+    const mine = r.double ? 0 : m.home === team ? r.hs : r.as, theirs = r.double ? 3 : m.home === team ? r.as : r.hs;
     const k = mine > theirs ? 'W' : mine < theirs ? 'L' : 'D';
     return `<span class="form"><i class="f-${k}">${k === 'W' ? t('won') : k === 'D' ? t('drawn') : t('lost')}</i></span> <b>${mine}–${theirs}</b>${r.forfeit ? ` <span class="tag forfeit">${t('forfeit')}</span>` : ''}`;
   };
@@ -3303,6 +3616,85 @@ function pageAdminTeamGames() {
 const played_tag = m => (notRescheduled(m) ? `<span class="tag postponed">${t('postponed')}</span>`
   : playedDate(m) <= todayISO() ? `<span class="tag">${t('needsScore')}</span>` : `<span class="muted">${esc(m.time)} · ${esc(shownField(m))}</span>`);
 
+// ---------- friendlies in Enter scores ----------
+// Friendlies are booked on the Schedule planner (a slot whose division is "Friendly"). They never show on the
+// public site and never count, unless a team is checked under "Counts for": then the game becomes a real one
+// for that team only (the other side plays as a guest, like a replacement game: nothing changes for them), or
+// for both. The friendly keeps its slot on the planner; the counted game is kept apart (fromFriendly).
+function friendliesOf(div) {
+  const out = [];
+  Object.entries(state.matchDays || {}).forEach(([date, day]) => Object.entries(day).forEach(([sec, fields]) => {
+    if (!fields || typeof fields !== 'object') return;
+    Object.entries(fields).forEach(([field, rows]) => (Array.isArray(rows) ? rows : []).forEach(r => {
+      if (!isFriendly(date, r) || !r.home || !r.away || r.home === FRIENDLY_OUT || r.away === FRIENDLY_OUT) return;
+      if ((r.fdiv || '') !== div && !(div === ui.adminDiv && !r.fdiv && !DIVISIONS.some(d => d.id === r.fdiv))) return;
+      out.push({ date, sec, field, r });
+    }));
+  }));
+  // Friendlies with no division picked show under every division, so they can still be found.
+  return out.filter(f => f.r.fdiv === div || !f.r.fdiv).sort((a, b) => b.date.localeCompare(a.date) || a.r.t - b.r.t);
+}
+const findFriendly = el => {
+  const box = el.closest('[data-frow]');
+  const rows = (((state.matchDays || {})[box.dataset.date] || {})[box.dataset.sec] || {})[box.dataset.field] || [];
+  return { box, date: box.dataset.date, field: box.dataset.field, r: rows.find(x => x.id === box.dataset.frow) };
+};
+function friendlyCountTag(m) {
+  const c = m.fromFriendly.countFor || [];
+  return c.length === 2 ? t('friendlyCountsBoth') : t('friendlyCountsFor').replace('{x}', c[0] === 'home' ? m.home : m.away);
+}
+// Make (or update, or remove) the real game behind a friendly that counts for one or both teams.
+function syncFriendlyCount(date, field, r, div) {
+  const want = (r.countFor || []).filter(side => (state.teams[div] || []).includes(r[side]));
+  let m = r.countMid && state.matches.find(x => x.id === r.countMid);
+  if (!want.length || r.home === r.away) {
+    if (m) state.matches = state.matches.filter(x => x.id !== m.id);
+    r.countMid = null;
+    return;
+  }
+  const guest = want.length === 1 ? r[want[0] === 'home' ? 'away' : 'home'] : '';
+  const fields = { div, date, time: fromMin(r.t), field, home: r.home, away: r.away,
+    hs: Number.isInteger(r.fhs) ? r.fhs : null, as: Number.isInteger(r.fas) ? r.fas : null,
+    fromFriendly: { row: r.id, countFor: want } };
+  if (!m) { m = { id: state.nextId++, goals: [] }; state.matches.push(m); r.countMid = m.id; }
+  Object.assign(m, fields);
+  if (guest) m.fillerTeam = guest; else delete m.fillerTeam;
+  touch(div);
+}
+function friendliesEditorHTML() {
+  const div = ui.adminDiv;
+  const list = friendliesOf(div);
+  const teams = state.teams[div] || [];
+  return `<p class="note">${t('friendliesHelp')}</p>
+    ${list.length ? [...groupBy(list, f => f.date)].map(([date, group]) => {
+      // "Game 3 · Sunday, Nov 8" when the division plays that day, otherwise just the date.
+      const leagueDay = state.matches.some(m => m.div === div && m.date === date && !m.playoff && !m.fromFriendly);
+      return `<section class="await-group friendly-group">
+      <h3 class="await-head"><span>${leagueDay ? `${t('game')} ${gameNumber(div, date)} · ` : ''}${esc(fmtDate(date, { weekday: 'long', month: 'short', day: 'numeric' }))}</span>
+        <span class="muted">${group.length} ${t(group.length === 1 ? 'friendlyOne' : 'friendlyMany')}</span></h3>
+      <div class="stack">${group.map(({ date, sec, field, r }) => {
+      const m = r.countMid && state.matches.find(x => x.id === r.countMid);
+      const hs = m ? m.hs : r.fhs, as = m ? m.as : r.fas;
+      const side = (s, name) => {
+        const inDiv = teams.includes(name);
+        return `<label class="check-pill ${inDiv ? '' : 'not-in-div'}" ${inDiv ? '' : `title="${esc(t('friendlyNotInDiv').replace('{div}', divName(div)))}"`}>
+          <input type="checkbox" data-change="friendly-count" data-side="${s}" ${inDiv ? '' : 'data-needs-team="1"'} ${(r.countFor || []).includes(s) && inDiv ? 'checked' : ''}><span>${esc(name)}${inDiv ? '' : ` <small>＋ ${esc(divName(div))}</small>`}</span></label>`;
+      };
+      return `<div class="card friendly-card" data-frow="${esc(r.id)}" data-date="${date}" data-sec="${sec}" data-field="${esc(field)}">
+        <div class="row-meta"><span class="tag">${t('friendly')}</span>${m ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : ''}
+          <span class="muted">${esc(fromMin(r.t))} · ${esc(FIELDS[field] || field)}${r.fdiv ? '' : ` · ${t('friendlyNoDiv')}`}</span></div>
+        <div class="friendly-score">
+          <span class="fs-team">${esc(r.home)}</span>
+          <input class="input num" type="number" min="0" inputmode="numeric" data-change="friendly-score" data-side="fhs" value="${Number.isInteger(hs) ? hs : ''}" aria-label="${esc(r.home)}">
+          <span class="fs-team">${esc(r.away)}</span>
+          <input class="input num" type="number" min="0" inputmode="numeric" data-change="friendly-score" data-side="fas" value="${Number.isInteger(as) ? as : ''}" aria-label="${esc(r.away)}">
+        </div>
+        <div class="friendly-count"><span class="muted">${t('friendlyCountsLabel')}</span>${side('home', r.home)}${side('away', r.away)}</div>
+      </div>`;
+    }).join('')}</div></section>`;
+    }).join('') : empty(t('noFriendlies'))}`;
+}
+
 function pageAdminScores() {
   const today = todayISO();
   const { day, html: picker, label: dayLabel } = gameDayPicker(ui.adminDiv, 'adminScoreDay');
@@ -3313,7 +3705,25 @@ function pageAdminScores() {
   const ofTeam = m => !team || m.home === team || m.away === team;
   const teamSel = `<select class="select" data-change="admin-score-team" aria-label="${t('team')}"><option value="">${t('allTeams')}</option>${divTeams.map(n => `<option ${n === team ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select>`;
   const postponedCount = state.matches.filter(m => m.div === ui.adminDiv && m.postponed && !played(m)).length;
-  const postponedTab = `<button class="${ui.adminFilter === 'postponed' ? 'active' : ''}" data-filter="postponed">${t('postponed')}${postponedCount ? `<span class="count">${postponedCount}</span>` : ''}</button>`;
+  const postponedTab = `<button class="${ui.adminFilter === 'postponed' ? 'active' : ''}" data-filter="postponed">${t('postponed')}${postponedCount ? `<span class="count">${postponedCount}</span>` : ''}</button>`
+    + `<button class="${ui.adminFilter === 'friendlies' ? 'active' : ''}" data-filter="friendlies">${t('friendliesTab')}</button>`;
+  const draftCount = state.matches.filter(m => m.div === ui.adminDiv && m.draft).length;
+  const pubTab = `<button class="${ui.adminFilter === 'published' ? 'active' : ''}" data-filter="published">${t('publishedTab')}</button>`;
+  const draftTab = `<button class="${ui.adminFilter === 'drafts' ? 'active' : ''}" data-filter="drafts">${t('draftsTab')}${draftCount ? `<span class="count">${draftCount}</span>` : ''}</button>`;
+  if (ui.adminFilter === 'friendlies') {
+    return adminShell('admin/scores', `
+    <h1 class="page-title">${t('enterScores')}</h1>
+    <div class="toolbar">
+      ${divPills(ui.adminDiv, 'data-admin-div', { tours: true })}
+      <div class="seg">
+        <button data-filter="needs">${t('needsScore')}</button>
+        <button data-filter="scored">${t('hasScore')}</button>
+        <button data-filter="all">${t('all')}</button>
+        ${pubTab}${draftTab}${postponedTab}
+      </div>
+    </div>
+    ${friendliesEditorHTML()}`);
+  }
   if (ui.adminFilter === 'postponed') {
     return adminShell('admin/scores', `
     <h1 class="page-title">${t('enterScores')}</h1>
@@ -3323,7 +3733,7 @@ function pageAdminScores() {
         <button data-filter="needs">${t('needsScore')}</button>
         <button data-filter="scored">${t('hasScore')}</button>
         <button data-filter="all">${t('all')}</button>
-        ${postponedTab}
+        ${pubTab}${draftTab}${postponedTab}
       </div>
     </div>
     ${postponedEditorHTML()}`);
@@ -3340,18 +3750,22 @@ function pageAdminScores() {
         <button class="${ui.adminFilter === 'all' || ui.adminFilter === 'postponed' ? 'active' : ''}" data-filter="all">${t('all')}</button>
       </div>
     </div>
-    ${tourGamesHTML(ui.adminDiv, pick, false)}`);
+    ${tourGamesHTML(ui.adminDiv, pick, false)}
+    ${saveAllBarHTML()}`);
   }
   let list = state.matches.filter(m => m.div === ui.adminDiv && (day === 'all' || m.date === day) && ofTeam(m));
   // A postponed game with no new date waits in the Postponed tab instead.
   if (ui.adminFilter === 'needs') list = list.filter(m => !played(m) && !m.forfeitBy && !notRescheduled(m) && m.date <= today);
   if (ui.adminFilter === 'scored') list = list.filter(m => played(m) || m.forfeitBy);
+  if (ui.adminFilter === 'drafts') list = list.filter(m => m.draft);
+  if (ui.adminFilter === 'published') list = list.filter(m => played(m) && !m.forfeitBy);
   list.sort((a, b) => byDateTime(b, a));
   // Games a withdrawn team had left: nothing to type, so not under "Needs score".
-  const forfeitsShown = ui.adminFilter === 'needs' ? ''
+  const noStubs = ['needs', 'drafts', 'published'].includes(ui.adminFilter);
+  const forfeitsShown = noStubs ? ''
     : forfeitStubs(ui.adminDiv).filter(m => (day === 'all' || m.date === day) && ofTeam(m)).sort((a, b) => byDateTime(b, a)).map(m => forfeitLine(m)).join('');
   // All game days at once: each day under its own "Game 3 · Sunday, November 1, 2026" heading.
-  const byDay = () => [...groupBy([...list, ...(ui.adminFilter === 'needs' ? [] : forfeitStubs(ui.adminDiv).filter(ofTeam))].sort((a, b) => byDateTime(b, a)), m => m.date)]
+  const byDay = () => [...groupBy([...list, ...(noStubs ? [] : forfeitStubs(ui.adminDiv).filter(ofTeam))].sort((a, b) => byDateTime(b, a)), m => m.date)]
     .map(([d, ms]) => `<h3 class="day-title">${esc(dayLabel(d).replace(` ${t('of')} ${gameColumns(ui.adminDiv)}`, ''))}</h3>${ms.map(m => (m.left ? forfeitLine(m) : scoreRowHTML(m))).join('')}`).join('');
   return adminShell('admin/scores', `
     <h1 class="page-title">${t('enterScores')}</h1>
@@ -3361,14 +3775,16 @@ function pageAdminScores() {
         <button class="${ui.adminFilter === 'needs' ? 'active' : ''}" data-filter="needs">${t('needsScore')}</button>
         <button class="${ui.adminFilter === 'scored' ? 'active' : ''}" data-filter="scored">${t('hasScore')}</button>
         <button class="${ui.adminFilter === 'all' ? 'active' : ''}" data-filter="all">${t('all')}</button>
-        ${postponedTab}
+        ${pubTab}${draftTab}${postponedTab}
       </div>
     </div>
+    <p class="note">${t('scoresSaveHelp')}</p>
     ${picker}
     ${team ? teamBanner(team, ui.adminDiv) : ''}
-    <div class="stack">${day === 'all' && (list.length || forfeitsShown) ? byDay() : `${list.map(m => scoreRowHTML(m)).join('') || (forfeitsShown ? '' : empty(t(ui.adminFilter === 'scored' ? 'noScoredYet' : ui.adminFilter === 'needs' ? 'noAwaiting' : 'noMatches')))}
+    <div class="stack">${day === 'all' && (list.length || forfeitsShown) ? byDay() : `${list.map(m => scoreRowHTML(m)).join('') || (forfeitsShown ? '' : empty(t(ui.adminFilter === 'published' ? 'noPublished' : ui.adminFilter === 'drafts' ? 'noDrafts' : ui.adminFilter === 'scored' ? 'noScoredYet' : ui.adminFilter === 'needs' ? 'noAwaiting' : 'noMatches')))}
       ${forfeitsShown}`}
     </div>
+    ${saveAllBarHTML()}
     ${day !== 'all' ? addGameHTML(day) : ''}`);
 }
 
@@ -3879,7 +4295,7 @@ function boardDay(date) {
     if (r.mid && !state.matches.some(m => m.id === r.mid && m.date === date && !m.forfeitBy)) Object.assign(r, { mid: null, home: '', away: '' });
     if (r.mid) linked.add(r.mid);
   })));
-  state.matches.filter(m => m.date === date && !linked.has(m.id) && !m.forfeitBy).forEach(m => {
+  state.matches.filter(m => m.date === date && !linked.has(m.id) && !m.forfeitBy && !m.fromFriendly).forEach(m => {
     const sec = day[groupOf(m.div)] = day[groupOf(m.div)] || {};
     const rows = sec[m.field] = sec[m.field] || [];
     const t = toMin(m.time);
@@ -4183,7 +4599,7 @@ const sundayOf = date => addDays(date, -dayOfWeek(date));
 // Which game of the season a date is for a division: its place among the division's game days,
 // counting ahead for a date that has no games yet (same numbering as the Scores page).
 function gameNumber(div, date) {
-  const days = [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff).map(m => m.date))].sort();
+  const days = [...new Set([...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
   const i = days.indexOf(date);
   return i >= 0 ? i + 1 : days.filter(d => d < date).length + 1;
 }
@@ -4228,6 +4644,7 @@ function forfeitBoxHTML() {
         <label class="field">${t('division')}<select class="select" name="div" data-change="forfeit-div">${divs.map(d => `<option value="${d.id}" ${d.id === addDiv ? 'selected' : ''}>${esc(divName(d.id))}</option>`).join('')}</select></label>
         <label class="field">${t('forfeitingTeam')}<select class="select" name="loser">${loserOptions}</select></label>
         <label class="field">${t('winsTeam')}<select class="select" name="winner">${teamOptions(addDiv, '')}</select></label>
+        <label class="check-pill both-ff"><input type="checkbox" name="both"><span>${t('bothForfeitCheck')}</span></label>
         <div class="forfeit-add-actions">
           <button type="button" class="btn btn-sm btn-outline" data-action="forfeit-add-open">${t('cancel')}</button>
           <button class="btn btn-sm btn-gold" type="submit">${t('addForfeit')}</button>
@@ -4252,13 +4669,13 @@ function forfeitBoxHTML() {
       }, m => {
         const winner = m.forfeitBy === m.home ? m.away : m.home;
         return `<div class="forfeit-row" data-mid="${m.id}">
-          <span class="tag forfeit">${t('forfeit')}</span>
+          <span class="tag forfeit">${t(doubleForfeit(m) ? 'doubleForfeit' : 'forfeit')}</span>
           <b>${t('game')} ${gameNumber(m.div, m.date)}</b>
-          <span><b>${esc(winner)}</b> ${t('wins30')} <span class="muted">· ${esc(m.forfeitBy)} ${t('forfeitedWord')}${m.forfeitFrom ? ` · ${t('wasBooked')} ${esc(m.forfeitFrom.time)}` : ''}</span></span>
+          <span>${doubleForfeit(m) ? `<b>${esc(m.home)}</b> ${t('and')} <b>${esc(m.away)}</b> ${t('bothLose30Lower')}<span class="muted">` : `<b>${esc(winner)}</b> ${t('wins30')} <span class="muted">· ${esc(m.forfeitBy)} ${t('forfeitedWord')}`}${m.forfeitFrom ? ` · ${t('wasBooked')} ${esc(m.forfeitFrom.time)}` : ''}</span></span>
           <button type="button" class="icon-btn danger" data-action="ask" data-confirm="rm-forfeit-game" data-ask="${m.forfeitFrom ? 'askBackToGame' : 'askRmForfeit'}" data-yes="${m.forfeitFrom ? 'yesBack' : 'yesRemove'}" data-id="${m.id}" aria-label="${t(m.forfeitFrom ? 'backToGame' : 'remove')}" title="${t(m.forfeitFrom ? 'backToGame' : 'remove')}">×</button>
-          <button type="button" class="link-btn replacement-btn" data-action="filler-open" data-mid="${m.id}" aria-expanded="${ui.fillerFor === m.id}">＋ ${t('fillerBtn')}</button>
+          ${doubleForfeit(m) ? '' : `<button type="button" class="link-btn replacement-btn" data-action="filler-open" data-mid="${m.id}" aria-expanded="${ui.fillerFor === m.id}">＋ ${t('fillerBtn')}</button>`}
         </div>
-        ${ui.fillerFor === m.id ? fillerFormHTML(m, winner) : ''}`;
+        ${ui.fillerFor === m.id && !doubleForfeit(m) ? fillerFormHTML(m, winner) : ''}`;
       })}
     </section>`;
 }
@@ -4390,6 +4807,8 @@ const hasGameOn = (div, team, date, skip) => [...state.matches, ...forfeitStubs(
 
 function addForfeit(form) {
   const div = form.div.value, loser = form.loser.value, winner = form.winner.value, date = ui.boardDate;
+  // "Both teams forfeit": each loses 3–0 (a team that withdrew can't be part of one).
+  const both = !!(form.both && form.both.checked) && !state.withdrawn[`${div}|${loser}`];
   const warn = form.querySelector('.warn');
   const fail = msg => { warn.textContent = msg; warn.hidden = false; };
   if (!loser || !winner) return fail(t('pickTeams'));
@@ -4403,17 +4822,17 @@ function addForfeit(form) {
     // Their game that day, if it's booked, becomes the forfeit (the field frees up); otherwise a new one.
     const booked = state.matches.find(m => m.div === div && m.date === date && !played(m) && !m.forfeitBy
       && ((m.home === winner && m.away === loser) || (m.home === loser && m.away === winner)));
-    if (booked) Object.assign(booked, { forfeitBy: loser, forfeitFrom: { field: booked.field, time: booked.time }, field: '' });
+    if (booked) Object.assign(booked, { forfeitBy: both ? BOTH : loser, forfeitFrom: { field: booked.field, time: booked.time }, field: '' });
     else {
       const busy = [winner, loser].find(x => hasGameOn(div, x, date));
       if (busy) return fail(`${busy} ${t('alreadyPlaysToday')}`);
-      state.matches.push({ id: state.nextId++, div, date, time: '12:00 PM', field: '', home: winner, away: loser, hs: null, as: null, goals: [], forfeitBy: loser });
+      state.matches.push({ id: state.nextId++, div, date, time: '12:00 PM', field: '', home: winner, away: loser, hs: null, as: null, goals: [], forfeitBy: both ? BOTH : loser });
     }
   }
   ui.forfeitDiv = div;
   ui.forfeitAddOpen = false;
   touch(div);
-  logAction(`${t('forfeitAdded')} · ${divName(div)} · ${fmtDate(date)}: ${winner} ${t('wins30')} (${loser} ${t('forfeitedWord')})`);
+  logAction(`${t('forfeitAdded')} · ${divName(div)} · ${fmtDate(date)}: ${both ? `${winner} ${t('and')} ${loser} ${t('bothLose30Lower')}` : `${winner} ${t('wins30')} (${loser} ${t('forfeitedWord')})`}`);
   save(); render();
 }
 
@@ -4904,10 +5323,16 @@ function exportCard(btn) {
   const { what, as } = btn.dataset;
   const div = btn.dataset.pdiv || (what === 'scorers' ? scorerDiv(ui.div) : ui.div);
   return exportWith(btn, async () => {
-    if (what === 'table') {
-      // Just the standings table, cut out with a see-through background, at its own size.
-      const [c] = await snapPages(tableImageHTML(div), EXPORT_SCALE, null);
-      return downloadPng(c, safeName(`Alhambra ${t('standings')} ${divName(div)} ${t('tableOnlyFile')} ${fileDate(todayISO())}.png`));
+    if (what === 'scoresImg') {
+      const date = ui.tiDate;
+      const [c] = await snapPages(scoresImageHTML(div, date), EXPORT_SCALE, null);
+      return downloadPng(c, safeName(`LA Alhambra Soccer League ${divName(div)} ${t('game')} ${gameNumber(div, date)} ${t('scoresWord')} ${fileDate(date)}.png`));
+    }
+    if (what === 'table' || what === 'scorerTable') {
+      // Just the table, cut out with a see-through background, at its own size.
+      const sc = what === 'scorerTable';
+      const [c] = await snapPages(sc ? scorerImageHTML(div) : tableImageHTML(div), EXPORT_SCALE, null);
+      return downloadPng(c, safeName(`Alhambra ${t(sc ? 'scorers' : 'standings')} ${divName(div)} ${t('tableOnlyFile')} ${fileDate(todayISO())}.png`));
     }
     const [c] = await snapPages(exportCardHTML(what, div), EXPORT_SCALE);
     // "LA Alhambra Soccer League U-11 Game 2" (Goleadores add their name so the two pictures don't share one).
@@ -5025,17 +5450,43 @@ function sheetDayLabel(d, sec) {
 // ---------- Admin → Standings table (just the table, as a picture for slides) ----------
 // The size and columns are set here and kept for every week; the picture has a see-through background.
 const TABLE_COLS = [['rank', '#'], ['logo', 'logoCol'], ['p', 'played'], ['w', 'won'], ['d', 'drawn'], ['l', 'lost'], ['gf', 'gf'], ['ga', 'ga'], ['gd', 'gd'], ['pts', 'pts'], ['form', 'form']];
-const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
-const tableSet = () => ({ ...TABLE_DEFAULTS, ...(state.tableImage || {}) });
+// The titles row's fill and text colors, and a thin empty row at the bottom
+// in the titles row's color (like a row with 0.3 pt text in a spreadsheet).
+const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, bottomHeight: 4 };
+// headHeight 0 = the titles row sizes itself; spaceBelow = empty space under the table inside the picture.
+const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, headHeight: 0, spaceBelow: 0, formCount: 5, ...IMG_LOOK, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
+// The Goleadores picture works the same way, with how many players show and each column's width (0 = auto).
+// Its rows look like the Goleadores list on the site: rank, the player with their team and logo under the
+// name, the bar, and the goals.
+const SCORER_COLS = [['rank', '#'], ['team', 'team'], ['logo', 'logoCol'], ['bar', 'progressBar']];
+const SCORER_IMG_DEFAULTS = { unit: 'in', autoFit: true, width: 640, height: 0, rowHeight: 64, fontSize: 16, logoSize: 20, headerRow: true, headHeight: 0, spaceBelow: 0, count: 5,
+  ...IMG_LOOK, colWidths: { rank: 0, name: 0, goals: 0 }, cols: ['rank', 'team', 'logo', 'bar'] };
+const SCORER_GAP = 6;
+// The week's scores picture: each game as logo · score · vs · score · logo. Up to 6 games in one column;
+// more go in two even columns, with an odd last game centered under them. The score boxes' color is set here.
+// Each game's row has its own width and height; the picture is one or two rows wide.
+const SCORES_IMG_DEFAULTS = { unit: 'in', rowWidth: 640, rowHeight: 130, scoreFill: '#8b2a12', scoreColor: '#ffffff' };
+const imgKey = kind => ({ scorers: 'scorerImage', scores: 'scoresImage' }[kind] || 'tableImage');
+const imgSet = (kind = 'standings') => {
+  const d = kind === 'scorers' ? SCORER_IMG_DEFAULTS : kind === 'scores' ? SCORES_IMG_DEFAULTS : TABLE_DEFAULTS, o = state[imgKey(kind)] || {};
+  return { ...d, ...o, ...(d.colWidths ? { colWidths: { ...d.colWidths, ...(o.colWidths || {}) } } : {}) };
+};
+const tableSet = () => imgSet('standings');
+const imgLookVars = (o, used) => `--hfill:${o.headFill};--hcolor:${o.headColor};--bottom:${used.botH}px;`;
+const scorerImgRows = div => topScorers(leaders(div), imgSet('scorers').count);
 // With Auto-fit on, a set Height decides the rows (and logos/text shrink to fit); with it off your sizes
 // stay as typed and the picture is still the Height tall (see-through under the table, or cut if longer).
-function tableUsed(div) {
-  const o = tableSet(), n = shownStandings(div).length, fit = o.height > 0 && o.autoFit;
-  const headH = o.headerRow ? Math.round(o.fontSize * 2.3) : 0;
-  const rowH = fit && n ? Math.max(12, (o.height - headH - 2) / n) : o.rowHeight;
-  return { headH, rowH, fit, natural: headH + n * o.rowHeight + 2,
-    logo: fit ? Math.max(8, Math.min(o.logoSize, rowH - 6)) : o.logoSize,
-    font: fit ? Math.max(8, Math.min(o.fontSize, Math.floor(rowH * 0.62))) : o.fontSize };
+function tableUsed(div, kind = 'standings') {
+  const sc = kind === 'scorers';
+  const o = imgSet(kind), n = (sc ? scorerImgRows(div) : shownStandings(div)).length, fit = o.height > 0 && o.autoFit;
+  const headH = o.headerRow ? (o.headHeight > 0 ? o.headHeight : Math.round(o.fontSize * 2.3)) : 0;
+  const botH = o.bottomRow ? o.bottomHeight : 0;
+  // the Goleadores rows are separate boxes with a little space between them (and the titles and bottom rows)
+  const extra = sc ? SCORER_GAP * Math.max(0, n - 1 + (o.headerRow ? 1 : 0) + (o.bottomRow ? 1 : 0)) : 2;
+  const rowH = fit && n ? Math.max(12, (o.height - headH - botH - extra - o.spaceBelow) / n) : o.rowHeight;
+  return { headH, rowH, botH, fit, natural: headH + n * o.rowHeight + botH + extra + o.spaceBelow,
+    logo: fit ? Math.max(8, Math.min(o.logoSize, sc ? Math.floor(rowH * 0.34) : rowH - 6)) : o.logoSize,
+    font: fit ? Math.max(8, Math.min(o.fontSize, Math.floor(rowH * (sc ? 0.3 : 0.62)))) : o.fontSize };
 }
 function tableImageHTML(div) {
   const o = tableSet(), on = k => o.cols.includes(k);
@@ -5043,27 +5494,130 @@ function tableImageHTML(div) {
   const used = tableUsed(div);
   const head = k => ({ rank: '#', logo: '', p: t('played'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('pts'), form: t('form') }[k]);
   const stats = ['p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts', 'form'].filter(on);
-  const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form) : r[k]);
+  const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount)) : r[k]);
   // A height picked for the whole table: the rows share it (the titles row keeps its size), and logos and
   // text get smaller if the rows are too thin for them.
   const { headH, rowH } = used;
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
-  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''}" style="width:${o.width}px;${fixed}font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px">
+  const ncols = (on('rank') ? 1 : 0) + (on('logo') ? 1 : 0) + 1 + stats.length;
+  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;${imgLookVars(o, used)}">
     <table>
       ${o.headerRow ? `<thead><tr>${on('rank') ? `<th class="ti-rank">#</th>` : ''}<th class="ti-team" colspan="${on('logo') ? 2 : 1}">${t('team')}</th>${stats.map(k => `<th class="${k === 'form' ? 'ti-form' : ''}">${head(k)}</th>`).join('')}</tr></thead>` : ''}
       <tbody>${rows.map((r, i) => `<tr class="${i === 0 ? 'top' : ''}">
         ${on('rank') ? `<td class="ti-rank">${i + 1}</td>` : ''}${on('logo') ? `<td class="ti-logo">${teamLogo(r.team, div) ? `<img src="${teamLogo(r.team, div)}" alt="">` : ''}</td>` : ''}
         <td class="ti-team">${esc(r.team)}</td>${stats.map(k => `<td class="${k === 'pts' ? 'ti-pts' : k === 'form' ? 'ti-form' : ''}">${val(r, k)}</td>`).join('')}
       </tr>`).join('')}</tbody>
+      ${o.bottomRow ? `<tfoot><tr><td class="ti-bottom" colspan="${ncols}"></td></tr></tfoot>` : ''}
     </table></div>`;
+}
+// The Goleadores picture: rank, player, team (with logo) and goals, like the standings picture.
+function scorerImageHTML(div) {
+  const o = imgSet('scorers'), on = k => o.cols.includes(k), w = o.colWidths;
+  const rows = scorerImgRows(div), all = leaders(div), max = all[0] ? all[0].goals : 1;
+  const used = tableUsed(div, 'scorers');
+  const fixed = o.height > 0 ? `height:${o.height}px;` : '';
+  const rank = s => all.findIndex(x => x.goals === s.goals) + 1;
+  // columns: rank · player · goals (a typed width wins; otherwise the player takes the room)
+  const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
+  return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
+    ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
+    ${rows.map(sc => {
+      const r = rank(sc), logo = on('logo') && teamLogo(sc.team, div);
+      return `<div class="si-row ${r <= 3 ? `si-p${r}` : ''}">
+        ${on('rank') ? `<span class="si-rank"><b>${r}</b></span>` : ''}
+        <span class="si-who"><strong>${esc(sc.name)}</strong>${on('team') ? `<small>${logo ? `<img src="${logo}" alt="">` : ''}${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
+        <span class="si-goals">${sc.goals}</span></div>`;
+    }).join('')}
+    ${o.bottomRow ? '<div class="si-bottom"></div>' : ''}</div>`;
+}
+// Game days in a division that have at least one result, newest first.
+function scoreDays(div) {
+  const all = [...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.fromFriendly && resultOf(m));
+  return [...new Set(all.map(m => m.date))].sort().reverse();
+}
+const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
+  .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m)).sort(byDateTime);
+function scoresImageHTML(div, date) {
+  const o = imgSet('scores'), games = scoreDayGames(div, date);
+  const two = games.length > 6;
+  // a row is logo 1 · score .92 · vs 1.02 · score .92 · logo 1; text and gaps follow the row's size
+  const colW = o.rowWidth, H = o.rowHeight;
+  const S = Math.min(H, colW / 4.86);
+  const colGap = two ? Math.round(H * 0.3) : 0;
+  const width = two ? colW * 2 + colGap : colW;
+  const box = (team) => { const logo = teamLogo(team, div); return `<span class="sx-logo">${logo ? `<img src="${logo}" alt="">` : `<b>${esc(team)}</b>`}</span>`; };
+  const row = m => {
+    const r = resultOf(m), dbl = r.double;
+    return `<div class="sx-row">${box(m.home)}<span class="sx-num">${dbl ? 'L' : r.hs}</span><span class="sx-vs">vs</span><span class="sx-num">${dbl ? 'L' : r.as}</span>${box(m.away)}</div>`;
+  };
+  const half = Math.floor(games.length / 2);
+  const body = !two ? `<div class="sx-col">${games.map(row).join('')}</div>`
+    : `<div class="sx-cols"><div class="sx-col">${games.slice(0, half).map(row).join('')}</div><div class="sx-col">${games.slice(half, half * 2).map(row).join('')}</div></div>
+       ${games.length % 2 ? `<div class="sx-last">${row(games[games.length - 1])}</div>` : ''}`;
+  return `<div class="scores-img ${two ? 'two' : ''}" style="width:${width}px;--s:${S}px;--h:${H}px;--colw:${colW}px;--colgap:${colGap}px;--fill:${o.scoreFill};--num:${o.scoreColor}">
+    ${games.length ? body : `<p class="sx-none">${t('noScoresThatDay')}</p>`}</div>`;
 }
 const tiSizeText = o => {
   const f = px => (o.unit === 'in' ? `${+(px / 96).toFixed(2)} in` : `${px} px`);
   return `${t('ti_preview')}: ${f(o.width)} × ${o.height > 0 ? f(o.height) : t('ti_auto')} · ${t('ti_saved4x')}`;
 };
+// The preview can be zoomed (only on screen; the saved picture keeps its real size). "Fit" shows it whole.
+const TI_ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.9, 1, 1.25, 1.5, 2];
+const tiPreview = html => `<div class="ti-zoom" role="group" aria-label="${t('zoom')}">
+    <button type="button" class="btn btn-sm btn-outline" data-action="ti-zoom" data-z="out" aria-label="${t('zoomOut')}">−</button>
+    <span class="ti-zoom-val"></span>
+    <button type="button" class="btn btn-sm btn-outline" data-action="ti-zoom" data-z="in" aria-label="${t('zoomIn')}">+</button>
+    <button type="button" class="btn btn-sm ${(ui.tiZoom || 'fit') === 'fit' ? 'btn-gold' : 'btn-outline'}" data-action="ti-zoom" data-z="fit">${t('zoomFit')}</button>
+    <button type="button" class="btn btn-sm ${ui.tiZoom === 1 ? 'btn-gold' : 'btn-outline'}" data-action="ti-zoom" data-z="1">100%</button>
+  </div>
+  <div class="ti-preview"><div class="ti-zoomed">${html}</div></div>`;
+function fitTiPreview() {
+  const box = document.querySelector('.ti-preview'), inner = box && box.querySelector('.ti-zoomed');
+  if (!inner) return;
+  inner.style.zoom = 1;
+  const pic = inner.firstElementChild;
+  const room = box.clientWidth - 28; // the preview's padding
+  const fit = pic && pic.offsetWidth ? Math.min(1, room / pic.offsetWidth) : 1;
+  const z = ui.tiZoom === undefined || ui.tiZoom === 'fit' ? fit : ui.tiZoom;
+  inner.style.zoom = z;
+  ui.tiZoomNow = z;
+  document.querySelector('.ti-zoom-val').textContent = `${Math.round(z * 100)}%`;
+}
+window.addEventListener('resize', () => { if (document.querySelector('.ti-preview')) fitTiPreview(); });
+const TI_KINDS = [['standings', 'standings'], ['scorers', 'scorers'], ['scores', 'weeklyScores']];
+const hexField = (o, k) => `<label class="field">${t(`ti_${k}`)}<span class="hex-input"><span class="hex-swatch" style="background:${esc(o[k])}"></span>
+  <input class="input" type="text" value="${esc(o[k].toUpperCase())}" data-change="ti-color" data-k="${k}" maxlength="7" spellcheck="false" autocapitalize="characters" placeholder="#000000"></span></label>`;
+function pageScoresImage() {
+  const div = ui.adminDiv, o = imgSet('scores'), days = scoreDays(div);
+  if (!days.includes(ui.tiDate)) ui.tiDate = days[0];
+  const date = ui.tiDate, n = date ? scoreDayGames(div, date).length : 0;
+  const inch = o.unit === 'in', show = px => (inch ? +(px / 96).toFixed(2) : Math.round(px));
+  return adminShell('admin/table', `
+    <h1 class="page-title">${t('tableImage')}</h1>
+    <div class="seg ti-kind">${TI_KINDS.map(([k, l]) => `<button type="button" class="${k === 'scores' ? 'active' : ''}" data-action="ti-kind" data-kind="${k}">${t(l)}</button>`).join('')}</div>
+    <p class="note">${t('scoresImageHelp')}</p>
+    <div class="toolbar">${divPills(div, 'data-admin-div')}</div>
+    <div class="card ti-settings">
+      <div class="seg ti-unit">${['in', 'px'].map(u => `<button type="button" class="${o.unit === u ? 'active' : ''}" data-action="ti-unit" data-unit="${u}">${t(u === 'in' ? 'ti_inches' : 'ti_pixels')}</button>`).join('')}</div>
+      <div class="league-grid">
+        <label class="field">${t('gameDay')}<select class="select" data-change="ti-date">${days.map(d => `<option value="${d}" ${d === date ? 'selected' : ''}>${t('game')} ${gameNumber(div, d)} · ${esc(fmtDate(d))}</option>`).join('') || `<option>${t('noScoresYet')}</option>`}</select></label>
+        ${[['rowWidth', 200, 1600], ['rowHeight', 20, 400]].map(([k, lo, hi]) => `<label class="field">${t(`ti_${k}`)}<span class="len-input"><input class="input" type="number" min="${inch ? 0 : lo}" max="${inch ? +(hi / 96).toFixed(2) : hi}" step="${inch ? 0.01 : 1}" value="${show(o[k])}" data-change="ti-set" data-k="${k}" data-unit="${o.unit}"> ${inch ? 'in' : 'px'}</span></label>`).join('')}
+        ${hexField(o, 'scoreFill')}${hexField(o, 'scoreColor')}
+      </div>
+      <p class="note">${t(n > 6 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(n > 6 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
+      <div class="row-actions">
+        <button type="button" class="btn btn-gold" data-action="export-card" data-what="scoresImg" data-as="png" data-pdiv="${div}" ${n ? '' : 'disabled'}>${t('saveScoresImage')}</button>
+        <button type="button" class="btn btn-outline" data-action="ti-reset">${t('backToDefault')}</button>
+      </div>
+    </div>
+    ${tiPreview(date ? scoresImageHTML(div, date) : empty(t('noScoresYet')))}`);
+}
 function pageAdminTable() {
-  const div = ui.adminDiv, o = tableSet();
-  const used = tableUsed(div);
+  if (ui.tiKind === 'scores') return pageScoresImage();
+  const kind = ui.tiKind === 'scorers' ? 'scorers' : 'standings';
+  if (kind === 'scorers') ui.adminDiv = scorerDiv(ui.adminDiv);
+  const div = ui.adminDiv, o = imgSet(kind);
+  const used = tableUsed(div, kind);
   const usedOf = { rowHeight: Math.round(used.rowH), logoSize: Math.round(used.logo), fontSize: used.font };
   // Every size can be typed in inches, like Google Slides shows a box's size (1 inch = 96 px), or in pixels.
   const inch = o.unit === 'in';
@@ -5079,6 +5633,9 @@ function pageAdminTable() {
       value="${sh(auto ? usedOf[k] : o[k])}" data-change="ti-set" data-k="${k}" data-unit="${pt ? 'pt' : o.unit}" ${auto ? 'disabled' : ''}> ${u}</span>
       ${auto ? `<small class="ti-used">${t('ti_setByHeight')}</small>` : smaller ? `<small class="ti-used">${t('ti_usingSmaller').replace('{n}', `${sh(usedOf[k])} ${u}`)}</small>` : ''}</label>`;
   };
+  // Sizes where 0 means automatic (titles row) or none (space below), and each column's width.
+  const opt = (k, lo, hi, zeroKey, val = o[k], data = `data-k="${k}"`) => `<label class="field">${t(`ti_${k.startsWith('col:') ? 'colWidth' : k}`).replace('{c}', k.startsWith('col:') ? t({ rank: 'rankCol', name: 'player', team: 'team', goals: 'goalsWord' }[k.slice(4)]).replace(/^./, x => x.toUpperCase()) : '')}
+    <span class="len-input"><input class="input" type="number" min="0" max="${inch ? +(hi / 96).toFixed(2) : hi}" step="${inch ? 0.01 : 1}" value="${val > 0 ? show(val) : ''}" placeholder="${t(zeroKey)}" data-change="ti-set" ${data} data-unit="${o.unit}"> ${unit}</span></label>`;
   // Height: the table's real height when it's automatic (fits the teams), or the one typed.
   const box = (k, lo, hi) => {
     const autoH = k === 'height' && !(o.height > 0);
@@ -5088,25 +5645,39 @@ function pageAdminTable() {
   };
   return adminShell('admin/table', `
     <h1 class="page-title">${t('tableImage')}</h1>
-    <p class="note">${t('tableImageHelp')}</p>
-    <div class="toolbar">${divPills(div, 'data-admin-div')}</div>
+    <div class="seg ti-kind">${TI_KINDS.map(([k, l]) => `<button type="button" class="${kind === k ? 'active' : ''}" data-action="ti-kind" data-kind="${k}">${t(l)}</button>`).join('')}</div>
+    <p class="note">${t(kind === 'scorers' ? 'scorerImageHelp' : 'tableImageHelp')}</p>
+    <div class="toolbar">${divPills(div, 'data-admin-div', { scorers: kind === 'scorers' })}</div>
     <div class="card ti-settings">
       <div class="seg ti-unit">${['in', 'px'].map(u => `<button type="button" class="${o.unit === u ? 'active' : ''}" data-action="ti-unit" data-unit="${u}">${t(u === 'in' ? 'ti_inches' : 'ti_pixels')}</button>`).join('')}</div>
-      <div class="league-grid">${box('width', 400, 1600)}${box('height', 0, 2400)}${num('rowHeight', 12, 80)}${num('fontSize', 9, 32)}${num('logoSize', 12, 70)}</div>
+      <div class="league-grid">${box('width', 400, 1600)}${box('height', 0, 2400)}${num('rowHeight', 12, 80)}${num('fontSize', 9, 32)}${num('logoSize', 12, 70)}${opt('headHeight', 0, 120, 'ti_headAuto')}${opt('spaceBelow', 0, 600, 'ti_none')}</div>
       <p class="note">${t('ti_heightHelp')}</p>
       <label class="strict-toggle ti-autofit"><input type="checkbox" data-change="ti-autofit" ${o.autoFit ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${t('ti_autoFit')}</span></label>
       <p class="note">${t(o.autoFit ? 'ti_autoFitOn' : 'ti_autoFitOff')}</p>
       ${o.height > 0 && !o.autoFit && used.natural > o.height ? `<p class="warn">${t('ti_tooTall')}</p>` : ''}
       <p class="field-label">${t('ti_columns')}</p>
-      <div class="day-checks">${TABLE_COLS.map(([k, label]) => `<label class="check-pill"><input type="checkbox" data-change="ti-col" value="${k}" ${o.cols.includes(k) ? 'checked' : ''}><span>${k === 'rank' ? '#' : t(label)}</span></label>`).join('')}
+      <div class="day-checks">${(kind === 'scorers' ? SCORER_COLS : TABLE_COLS).map(([k, label]) => `<label class="check-pill"><input type="checkbox" data-change="ti-col" value="${k}" ${o.cols.includes(k) ? 'checked' : ''}><span>${k === 'rank' ? '#' : t(label)}</span></label>`).join('')}
         <label class="check-pill"><input type="checkbox" data-change="ti-header" ${o.headerRow ? 'checked' : ''}><span>${t('ti_headerRow')}</span></label></div>
+      <p class="field-label">${t('ti_lookRows')}</p>
+      <div class="league-grid ti-look">
+        ${hexField(o, 'headFill')}${hexField(o, 'headColor')}
+        ${o.bottomRow ? num('bottomHeight', 1, 60) : ''}
+      </div>
+      <div class="day-checks">
+        <label class="check-pill"><input type="checkbox" data-change="ti-flag" data-k="bottomRow" ${o.bottomRow ? 'checked' : ''}><span>${t('ti_bottomRow')}</span></label>
+      </div>
+      ${kind === 'standings' && o.cols.includes('form') ? `<label class="field ti-small">${t('ti_formCount')}<select class="select" data-change="ti-count" data-k="formCount">${[1, 2, 3, 4, 5].map(n => `<option ${o.formCount === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>` : ''}
+      ${kind === 'scorers' ? `<div class="league-grid">
+        <label class="field">${t('ti_count')}<select class="select" data-change="ti-count" data-k="count">${Array.from({ length: 20 }, (_, i) => i + 1).map(n => `<option ${o.count === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+        ${['rank', 'name', 'goals'].filter(c => c !== 'rank' || o.cols.includes(c)).map(c => opt(`col:${c}`, 0, 800, 'ti_auto2', o.colWidths[c], `data-k="col:${c}"`)).join('')}</div>
+        <p class="note">${t('ti_colWidthHelp')}</p>` : ''}
       <div class="row-actions">
-        <button type="button" class="btn btn-gold" data-action="export-card" data-what="table" data-as="png" data-pdiv="${div}">${t('saveTableOnly')}</button>
+        <button type="button" class="btn btn-gold" data-action="export-card" data-what="${kind === 'scorers' ? 'scorerTable' : 'table'}" data-as="png" data-pdiv="${div}">${t('saveTableOnly')}</button>
         <button type="button" class="btn btn-outline" data-action="ti-reset">${t('backToDefault')}</button>
       </div>
     </div>
     <p class="muted ti-size">${tiSizeText(o)}</p>
-    <div class="ti-preview">${tableImageHTML(div)}</div>`);
+    ${tiPreview(kind === 'scorers' ? scorerImageHTML(div) : tableImageHTML(div))}`);
 }
 
 function pageAdminSheet() {
@@ -5209,7 +5780,7 @@ const nextGameNumber = div => {
 // The date of a division's Game N: the day it was played/booked, or (for games not booked yet) counted a
 // week at a time from the last game day, marked "about".
 function rotGameDate(div, g) {
-  const days = [...new Set(state.matches.filter(m => m.div === div && !m.playoff).map(m => m.date))].sort();
+  const days = [...new Set(state.matches.filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
   const short = d => fmtDate(d, { weekday: 'short', month: 'short', day: 'numeric' });
   if (g <= days.length) return short(days[g - 1]);
   // Count forward a week at a time from the last game day, skipping days off.
@@ -5296,7 +5867,7 @@ function syncRotationForfeits() {
     const div = w.div;
     if (!hasRotation(div)) return;
     const po = playoffsOf(div);
-    const booked = [...new Set(state.matches.filter(m => m.div === div && !m.playoff).map(m => m.date))];
+    const booked = [...new Set(state.matches.filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))];
     const last = lastPlayDay(div), coming = last >= todayISO() ? last : addDays(last, 7);
     const days = [...new Set([...booked, coming])].filter(d => d >= (w.on || '') && (!po || d < po.on) && gameNumber(div, d) <= gameColumns(div));
     days.forEach(date => {
@@ -5308,7 +5879,7 @@ function syncRotationForfeits() {
       const other = otherN && otherN <= at.size ? at.numbers[otherN] : '';
       if (!other || withdrawnIn(div).some(x => x.team === other)) return;
       if ((w.left || []).some(m => m.date === date && (m.home === w.team || m.away === w.team))) return;
-      if (state.matches.some(m => m.div === div && m.date === date && !m.forfeitBy && (m.home === other || m.away === other))) return;
+      if (state.matches.some(m => m.div === div && m.date === date && !m.forfeitBy && !m.fromFriendly && (m.home === other || m.away === other))) return;
       w.left = [...(w.left || []), { id: state.nextId++, div, date, time: '12:00 PM', field: '', home: other, away: w.team, hs: null, as: null, left: true, auto: true }];
       changed = true;
     });
@@ -5412,7 +5983,7 @@ function boardChange(el) {
       save();
       return redrawBoard(r.id, `b-${side}`);
     }
-    r[side] = el.value.trim();
+    r[side] = ensureFriendlyTeam(friendlyDiv(r), el.value.trim());
     syncRow(ui.boardDate, field, r); save();
     return redrawBoard(r.id, el.matches('.b-home') ? 'b-away' : 'next-row');
   }
@@ -5451,6 +6022,20 @@ function boardChange(el) {
 // slot's division, since it's usually our own teams). Each team is picked from that division's list, or
 // "Type a team name…" swaps in a box for any name (outside teams always get the box).
 const friendlyDiv = r => r.fdiv || r.div || FRIENDLY_OUT;
+// A new team typed in for a friendly joins that division right away, hidden from the standings, so it has a
+// team page (Teams → Withdrawn / hidden) and the friendly can count for it later. A name that's already a team
+// there (in any capitals) uses that team.
+function ensureFriendlyTeam(div, name) {
+  if (!name || !DIVISIONS.some(d => d.id === div && !isTour(d))) return name;
+  const list = state.teams[div] = state.teams[div] || [];
+  const same = list.find(n => n.toLowerCase() === name.toLowerCase());
+  if (same) return same;
+  list.push(name);
+  state.standingsHidden = { ...(state.standingsHidden || {}), [div]: [...hiddenFromStandings(div), name] };
+  logAction(`${t('logTeamAdded')}: ${name} · ${divName(div)} · ${t('hiddenFromStandingsTag')} (${t('friendly')})`);
+  toast(`${name}: ${t('friendlyTeamMade').replace('{div}', divName(div))}`);
+  return name;
+}
 function friendlyRow(date, section, field, r, opt, status) {
   const fdiv = friendlyDiv(r);
   const teams = DIVISIONS.some(d => d.id === fdiv) ? [...(state.teams[fdiv] || [])].sort((a, b) => a.localeCompare(b)) : [];
@@ -5866,8 +6451,8 @@ function renameHidden(div, from, to) {
 function mergeTeams(div, from, to) {
   const players = state.scorers.filter(s => s.div === div && (s.team === from || s.team === to));
   const byGame = new Map(players.map(s => {
-    const games = teamGames(div, s.team);
-    return [s, new Map(games.map((m, i) => [m.id, s.games[i] || 0]))];
+    const games = colGames(div, s.team);
+    return [s, new Map(games.map((m, i) => [m && m.id, s.games[i] || 0]).filter(([id]) => id))];
   }));
   state.matches.forEach(m => {
     if (m.div !== div) return;
@@ -5904,7 +6489,7 @@ function mergeTeams(div, from, to) {
   if (!teamLogo(to, div) && teamLogo(from, div)) logos[`${div}|${to}`] = teamLogo(from, div);
   delete logos[`${div}|${from}`];
   // Goleadores: same player name on both → one player; goals put back in the right game columns.
-  const games = teamGames(div, to);
+  const games = colGames(div, to);
   const keep = new Map();
   players.forEach(s => {
     const key = s.own ? '\u0000own' : s.name.trim().toLowerCase();
@@ -5917,7 +6502,7 @@ function mergeTeams(div, from, to) {
   });
   keep.forEach(({ s, goals }) => {
     s.team = to;
-    s.games = games.map(m => goals.get(m.id) || 0);
+    s.games = Array.from({ length: games.length }, (_, i) => (games[i] && goals.get(games[i].id)) || 0);
     recount(s);
   });
   touch(div);
@@ -6057,7 +6642,7 @@ function pickAddedTeam(key, name) {
 }
 
 // `archived`: bringing back an archived team (its name, logo and old divisions come filled in).
-function openAddTeam(join = '', rest = false, div = ui.adminDiv, addKey = '', archived = null) {
+function openAddTeam(join = '', rest = false, div = ui.adminDiv, addKey = '', archived = null, prefill = '', note = '') {
   const groups = [['youth', 'youth'], ['adult', 'adults'], ['futsal', 'futsal']];
   const dialog = document.createElement('dialog');
   dialog.className = 'modal';
@@ -6068,7 +6653,8 @@ function openAddTeam(join = '', rest = false, div = ui.adminDiv, addKey = '', ar
     ${rest ? `<p class="note">${t('addTeamRestHelp').replace('{div}', esc(divName(div)))}</p>` : ''}
     ${join ? `<p class="note">${t('joinHelp')}</p>` : ''}
     ${archived ? `<p class="note">${t('bringBackTeamHelp')}</p>` : ''}
-    <label class="field">${t('teamName')}<input class="input" name="name" required autocomplete="off" value="${esc(join || (archived ? archived.name : ''))}"></label>
+    ${note ? `<p class="note">${esc(note)}</p>` : ''}
+    <label class="field">${t('teamName')}<input class="input" name="name" required autocomplete="off" value="${esc(join || (archived ? archived.name : prefill))}"></label>
     <div class="logo-edit">
       <span class="logo-preview">${archived ? (logo ? `<span class="team-badge big has-logo"><img src="${logo}" alt=""></span>` : '<span class="team-badge big">＋</span>') : logo ? teamBadge(join, true, ui.adminDiv) : '<span class="team-badge big">＋</span>'}</span>
       <div class="logo-actions">
@@ -6117,19 +6703,65 @@ function teamGames(div, team, past) {
   return matches.filter(m => m.div === div && !m.playoff && m.fillerTeam !== team && (m.home === team || m.away === team)).sort(byDateTime);
 }
 
+// The Goleadores sheet's columns follow the league's game numbers: G1 is the division's Game 1, G2 its
+// Game 2… A week a team didn't play (joined late, a rest week) is an empty column. Returns the team's games
+// by column (gaps where it had none) and how many game weeks there are so far.
+function colGames(div, team, past) {
+  const games = teamGames(div, team, past);
+  if (past && past.scorerCols !== 'league') return Object.assign(games, { weeks: games.length }); // older seasons: the team's own order
+  const all = past ? [...past.matches, ...forfeitStubs(div, past.withdrawn || [], past.matches)] : [...state.matches, ...forfeitStubs(div)];
+  const days = [...new Set(all.filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
+  const out = [];
+  games.forEach(m => { const i = days.indexOf(m.date); if (i >= 0 && !out[i]) out[i] = m; });
+  return Object.assign(out, { weeks: days.length });
+}
+// Once: the columns used to follow each team's own games (G1 = its first game). Each team's goals move to
+// the column of the game they were scored in. A team already typed by game number (its column totals match
+// those games' scores better) stays as it is. Returns true if anything moved.
+function upgradeGoalCols() {
+  if (state.scorerCols === 'league') return false;
+  const teams = new Map();
+  state.scorers.forEach(x => { const k = `${x.div}\u0000${x.team}`; if (!teams.has(k)) teams.set(k, []); teams.get(k).push(x); });
+  teams.forEach(ps => {
+    const { div, team } = ps[0];
+    const old = teamGames(div, team), now = colGames(div, team);
+    const scored = m => (m && played(m) ? (m.home === team ? m.hs : m.as) : null);
+    let byOld = 0, byNow = 0;
+    for (let i = 0; i < Math.max(0, ...ps.map(x => x.games.length)); i++) {
+      const sum = ps.reduce((n, x) => n + (x.games[i] || 0), 0);
+      if (!sum) continue;
+      if (scored(old[i]) === sum) byOld++;
+      if (scored(now[i]) === sum) byNow++;
+    }
+    if (byNow > byOld) return;
+    ps.forEach(x => {
+      const out = [];
+      x.games.forEach((g, i) => {
+        if (!g) return;
+        const c = old[i] ? now.indexOf(old[i]) : -1, at = c >= 0 ? c : i;
+        out[at] = (out[at] || 0) + g;
+      });
+      x.games = Array.from({ length: out.length }, (_, i) => out[i] || 0);
+      recount(x);
+    });
+  });
+  state.scorerCols = 'league';
+  return true;
+}
+
 function sheetTeam() {
   const teams = [...(state.teams[ui.adminDiv] || [])].sort((a, b) => a.localeCompare(b));
   if (!teams.includes(ui.sheetTeam)) ui.sheetTeam = teams[0];
   return { teams, team: ui.sheetTeam };
 }
 
-function sheetRow(s, cols, own) {
+function sheetRow(s, cols, own, off = []) {
   const name = own
     ? `<span class="own-label">${t('ownGoal')}</span>`
     : `<input class="cell name" value="${esc(s ? s.name : '')}" placeholder="${s ? '' : t('addPlayerRow')}" aria-label="${t('player')}">`;
   return `<tr data-sid="${s ? s.id : ''}" ${own ? 'data-own="1" class="own-row"' : ''}>
     <td class="name-col">${name}</td>
-    ${Array.from({ length: cols }, (_, g) => `<td><input class="cell g" data-g="${g}" inputmode="numeric" maxlength="2" value="${s && s.games[g] ? s.games[g] : ''}" aria-label="G${g + 1}"></td>`).join('')}
+    ${Array.from({ length: cols }, (_, g) => `<td class="${off[g] ? 'no-game' : ''}"><input class="cell g" data-g="${g}" inputmode="numeric" maxlength="2" value="${s && s.games[g] ? s.games[g] : ''}" aria-label="G${g + 1}"></td>`).join('')}
     <td class="total">${s ? s.goals : 0}</td>
     <td class="row-x">${own ? '' : s
       ? `<button class="icon-btn danger" data-action="ask" data-confirm="rm-scorer" data-sid="${s.id}" aria-label="${t('remove')}">×</button>`
@@ -6139,10 +6771,11 @@ function sheetRow(s, cols, own) {
 
 function sheetFoot(div, team, cols) {
   const players = state.scorers.filter(s => s.div === div && s.team === team);
-  const games = teamGames(div, team);
+  const games = colGames(div, team);
   const cells = Array.from({ length: cols }, (_, g) => {
     const sum = players.reduce((n, s) => n + (s.games[g] || 0), 0);
     const m = games[g];
+    if (!m && g < games.weeks) return `<td class="no-game" title="${esc(t('noGameThisWeek'))}">${sum || ''}</td>`;
     const scored = m && played(m) ? (m.home === team ? m.hs : m.as) : null;
     const off = sum > 0 && scored !== null && sum !== scored;
     const tip = m ? `${fmtDate(m.date)} ${t('vs')} ${m.home === team ? m.away : m.home}${scored !== null ? ` · ${t('scored')} ${scored}` : ''}` : '';
@@ -6158,7 +6791,9 @@ function pageAdminScorers() {
   if (!team) return adminShell('admin/scorers', `<h1 class="page-title">${t('manageScorers')}</h1>${divPills(div, 'data-admin-div', { scorers: true })}${empty(t('noMatches'))}`);
   const players = state.scorers.filter(s => s.div === div && s.team === team && !s.own).sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
   const own = state.scorers.find(s => s.div === div && s.team === team && s.own);
-  const cols = Math.max(gameColumns(div), teamGames(div, team).length, ...players.map(s => s.games.length));
+  const byCol = colGames(div, team);
+  const off = Array.from({ length: byCol.weeks }, (_, g) => !byCol[g]);
+  const cols = Math.max(gameColumns(div), byCol.length, ...players.map(s => s.games.length));
   const foot = sheetFoot(div, team, cols);
   return adminShell('admin/scorers', `
     <h1 class="page-title">${t('manageScorers')}</h1>
@@ -6174,13 +6809,13 @@ function pageAdminScorers() {
       <table class="sheet" data-team="${esc(team)}" data-cols="${cols}">
         <thead><tr>
           <th class="name-col">${t('playerName')}</th>
-          ${Array.from({ length: cols }, (_, g) => `<th>G${g + 1}</th>`).join('')}
+          ${Array.from({ length: cols }, (_, g) => (!byCol[g] && g < byCol.weeks ? `<th class="no-game" title="${esc(t('noGameThisWeek'))}">G${g + 1}</th>` : `<th>G${g + 1}</th>`)).join('')}
           <th class="total">${t('total')}</th><th class="row-x"></th>
         </tr></thead>
         <tbody>
-          ${players.map(s => sheetRow(s, cols)).join('')}
-          ${Array.from({ length: BLANK_ROWS }, () => sheetRow(null, cols)).join('')}
-          ${sheetRow(own, cols, true)}
+          ${players.map(s => sheetRow(s, cols, false, off)).join('')}
+          ${Array.from({ length: BLANK_ROWS }, () => sheetRow(null, cols, false, off)).join('')}
+          ${sheetRow(own, cols, true, off)}
         </tbody>
         <tfoot><tr>
           <td class="name-col">${t('teamTotal')}</td>
@@ -6262,7 +6897,7 @@ function renderHeader(route) {
     </div>`;
 }
 
-// The league's Instagram, promoted on the home page and in the footer.
+// The league's Instagram, promoted on every public page and in the footer.
 const INSTAGRAM = { url: 'https://www.instagram.com/la.alhambra.soccer', handle: '@la.alhambra.soccer' };
 function instagramCard() {
   return `<a class="promo promo-insta" href="${INSTAGRAM.url}" target="_blank" rel="noopener">
@@ -6290,7 +6925,7 @@ function renderFooter() {
         <a class="footer-insta" href="${INSTAGRAM.url}" target="_blank" rel="noopener"><img src="images/instagram-glyph.png" alt="">${INSTAGRAM.handle}</a>
       </div>
     </div>
-    <p class="wrap fine">${t('footerNote')}</p>`;
+`;
 }
 
 const ROUTES = {
@@ -6299,7 +6934,7 @@ const ROUTES = {
   admin: pageAdminDash, 'admin/scores': pageAdminScores, 'admin/scorers': pageAdminScorers,
   'admin/schedule': pageAdminSchedule, 'admin/teams': pageAdminTeams, 'admin/seasons': pageAdminSeasons, 'admin/fields': pageAdminFields,
   'admin/settings': pageAdminSettings, 'admin/history': pageAdminHistory, 'admin/redcards': pageAdminRedCards,
-  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/matchups': pageAdminTeamGames,
+  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/matchups': pageAdminTeamGames,
   archive: pageArchive,
 };
 
@@ -6327,7 +6962,11 @@ function render() {
   renderHeader(route);
   renderFooter();
   const page = route.startsWith('admin') && !ui.admin ? pageLogin : ROUTES[route];
-  document.getElementById('app').innerHTML = page();
+  // Every public page starts with the Instagram block (the home page has it among its cards).
+  const insta = !route.startsWith('admin') && route !== '' ? `<div class="wrap insta-strip">${instagramCard()}</div>` : '';
+  document.getElementById('app').innerHTML = insta + page();
+  refreshSaveAll();
+  fitTiPreview();
   document.body.classList.toggle('is-admin', route.startsWith('admin'));
   fitSheet();
 }
@@ -6355,7 +6994,8 @@ function applyGoals(m, list, sign) {
       s = { id: state.nextScorerId++, div: m.div, name: g.name, team, games: [], goals: 0 };
       state.scorers.push(s);
     }
-    const game = teamGames(m.div, team).findIndex(x => x.id === m.id);
+    const game = colGames(m.div, team).findIndex(x => x && x.id === m.id);
+    if (game < 0) return; // not a league game (playoff, friendly)
     s.games[game] = Math.max(0, (s.games[game] || 0) + sign * g.n);
     for (let i = 0; i < s.games.length; i++) s.games[i] = s.games[i] || 0;
     recount(s);
@@ -6475,7 +7115,8 @@ document.addEventListener('click', e => {
       return;
     case 'add-sheet-row': {
       const table = document.querySelector('.sheet');
-      table.querySelector('.own-row').insertAdjacentHTML('beforebegin', sheetRow(null, +table.dataset.cols));
+      { const c = colGames(ui.adminDiv, table.dataset.team);
+        table.querySelector('.own-row').insertAdjacentHTML('beforebegin', sheetRow(null, +table.dataset.cols, false, Array.from({ length: c.weeks }, (_, g) => !c[g]))); }
       return table.querySelector('.own-row').previousElementSibling.querySelector('.cell.name').focus();
     }
     case 'board-section': ui.boardSection = el.dataset.section; return render();
@@ -6776,9 +7417,18 @@ document.addEventListener('click', e => {
     case 'pdf-sheet': return saveSheetPdf(el);
     case 'sheet-export': return sheetExport(el);
     case 'export-card': return exportCard(el);
-    case 'ti-reset': delete state.tableImage; save(); return render();
-    case 'ti-height-auto': state.tableImage = { ...tableSet(), height: 0 }; save(); return render();
-    case 'ti-unit': state.tableImage = { ...tableSet(), unit: el.dataset.unit }; save(); return render();
+    case 'ti-kind': ui.tiKind = el.dataset.kind; return render();
+    case 'ti-zoom': {
+      const z = el.dataset.z, now = ui.tiZoomNow || 1;
+      if (z === 'fit') ui.tiZoom = 'fit';
+      else if (z === '1') ui.tiZoom = 1;
+      else ui.tiZoom = z === 'in' ? TI_ZOOMS.find(x => x > now + 0.001) || TI_ZOOMS[TI_ZOOMS.length - 1] : [...TI_ZOOMS].reverse().find(x => x < now - 0.001) || TI_ZOOMS[0];
+      // keep the page where it is (only the preview changes)
+      const y = window.scrollY; render(); window.scrollTo(0, y); return;
+    }
+    case 'ti-reset': delete state[imgKey(ui.tiKind)]; save(); return render();
+    case 'ti-height-auto': state[imgKey(ui.tiKind)] = { ...imgSet(ui.tiKind), height: 0 }; save(); return render();
+    case 'ti-unit': state[imgKey(ui.tiKind)] = { ...imgSet(ui.tiKind), unit: el.dataset.unit }; save(); return render();
     case 'board-to-sheet': ui.sheetDate = ui.boardDate; ui.sheetSection = ui.boardSection; return;
     case 'sheet-to-board': {
       // Open the planner on the sheet's own date (it works a week at a time, so set the week and the day).
@@ -6917,6 +7567,74 @@ document.addEventListener('click', e => {
       save(); render();
       return toast(`${t('joinedLeague')}: ${name}`);
     }
+
+    case 'reg-btn-rm': { const box = el.closest('[data-reg-group]'); el.closest('.reg-edit-row').remove(); return saveRegGroup(box); }
+    case 'reg-btn-add': {
+      const box = el.closest('[data-reg-group]');
+      el.insertAdjacentHTML('beforebegin', `<div class="reg-edit-row" data-id="new"><input class="input" data-change="reg-btn" data-f="label" value="${esc(t('registerBtn'))}"><input class="input" data-change="reg-btn" data-f="url" value="" placeholder="https://…"><button type="button" class="icon-btn danger" data-action="reg-btn-rm">×</button></div>`);
+      saveRegGroup(box);
+      // focus the new button's link box to fill in
+      const rows = document.querySelectorAll(`[data-reg-group="${CSS.escape(box.dataset.regGroup)}"] .reg-edit-row`);
+      return rows[rows.length - 1]?.querySelector('[data-f=url]').focus();
+    }
+    case 'reg-reset': delete state.regButtons; delete state.regCards; logAction(t('regResetDone')); save(); return render();
+    case 'reg-card-add': {
+      const rc = regCardsState(), id = `c${Date.now().toString(36)}`;
+      state.regCards = { ...rc, added: [...rc.added, { id, section: el.dataset.section, title: t('regNewDivision'), desc: '', url: '' }] };
+      logAction(`${t('regDivCards')} · ${t(Object.fromEntries(REG_SECTIONS)[el.dataset.section])}: ${t('regCardAdded')}`);
+      save(); render();
+      const box = document.querySelector(`[data-reg-card="${id}"] [data-f=title]`);
+      if (box) { box.scrollIntoView({ block: 'center' }); box.select(); }
+      return;
+    }
+    case 'reg-card-rm': {
+      const rc = regCardsState(), id = el.dataset.id;
+      const c = REG_SECTIONS.flatMap(([sec]) => regCards(sec)).find(x => x.id === id);
+      state.regCards = id.startsWith('c') && rc.added.some(x => x.id === id)
+        ? { ...rc, added: rc.added.filter(x => x.id !== id) }
+        : { ...rc, removed: [...rc.removed, id] };
+      logAction(`${t('regDivCards')} · ${c ? c.title : ''}: ${t('regCardRemoved')}`);
+      save(); return render();
+    }
+    case 'score-publish': {
+      const form = el.closest('form');
+      if (!readScoreForm(form)) return toast(t('typeBothScores'));
+      const m = applyScoreForm(form);
+      scorePicks().delete(+form.dataset.id);
+      if (!m) return toast(t('nothingChanged'));
+      touch(m.div); save(); render();
+      return toast(`${t('publishedToast')}: ${m.home} ${m.hs ?? '–'}–${m.as ?? '–'} ${m.away}`);
+    }
+    case 'score-unpublish': {
+      const form = el.closest('form');
+      const m = unpublishScoreForm(form);
+      scorePicks().delete(+form.dataset.id);
+      if (!m) return;
+      touch(m.div); save(); render();
+      return toast(`${t('unpublishedToast')}: ${m.home} ${t('vs')} ${m.away}`);
+    }
+    case 'scores-bulk': {
+      const pub = el.dataset.mode === 'publish';
+      const forms = [...document.querySelectorAll('form.score-row')].filter(f => scorePicks().has(+f.dataset.id));
+      if (!forms.length) return;
+      if (el.dataset.mode === 'unpublish') {
+        const games = forms.map(unpublishScoreForm).filter(Boolean);
+        forms.forEach(f => scorePicks().delete(+f.dataset.id));
+        [...new Set(games.map(m => m.div))].forEach(touch);
+        if (games.length) save();
+        render();
+        return toast(games.length ? t('bulkUnpublished').replace('{n}', games.length) : t('nothingChanged'));
+      }
+      // A half-typed score (one box empty) stays ticked for later.
+      const ready = forms.filter(f => readScoreForm(f));
+      const games = ready.map(f => (pub ? applyScoreForm(f) : draftScoreForm(f))).filter(Boolean);
+      ready.forEach(f => scorePicks().delete(+f.dataset.id));
+      if (pub) [...new Set(games.map(m => m.div))].forEach(touch);
+      if (games.length) save();
+      render();
+      const half = forms.length - ready.length;
+      return toast(`${games.length ? t(pub ? 'bulkPublished' : 'bulkSaved').replace('{n}', games.length) : t('nothingChanged')}${half ? ` · ${t('halfScoresLeft').replace('{n}', half)}` : ''}`);
+    }
     case 'forfeit-open': ui.forfeitGame = ui.forfeitGame === +el.dataset.id ? null : +el.dataset.id; return render();
     case 'forfeit-game': {
       const m = state.matches.find(x => x.id === +el.dataset.id);
@@ -6924,7 +7642,7 @@ document.addEventListener('click', e => {
       Object.assign(m, { forfeitBy: el.dataset.team, forfeitFrom: { field: m.field, time: m.time }, field: '', hs: null, as: null });
       ui.forfeitGame = null;
       touch(m.div);
-      logAction(`${t('forfeitAdded')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${m.forfeitBy === m.home ? m.away : m.home} ${t('wins30')} (${m.forfeitBy} ${t('forfeitedWord')})`);
+      logAction(`${t('forfeitAdded')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${doubleForfeit(m) ? `${m.home} ${t('and')} ${m.away} ${t('bothLose30Lower')}` : `${m.forfeitBy === m.home ? m.away : m.home} ${t('wins30')} (${m.forfeitBy} ${t('forfeitedWord')})`}`);
       save(); return render();
     }
     case 'rm-forfeit-game': {
@@ -7061,17 +7779,11 @@ document.addEventListener('submit', e => {
       save(); render(); return toast(t('saved'));
     }
     case 'score': {
-      const m = state.matches.find(x => x.id === +form.dataset.id);
-      const hs = form.hs.value === '' ? null : +form.hs.value;
-      const as = form.as.value === '' ? null : +form.as.value;
-      m.hs = hs !== null && as !== null ? hs : null;
-      m.as = hs !== null && as !== null ? as : null;
-      if (form.ph) {
-        const ph = form.ph.value === '' ? null : +form.ph.value, pa = form.pa.value === '' ? null : +form.pa.value;
-        if (ph !== null && pa !== null && ph !== pa) m.pens = [ph, pa]; else delete m.pens;
-      }
-      logAction(`${t('logScore')} · ${divName(m.div)}: ${m.home} ${m.hs ?? '–'}–${m.as ?? '–'} ${m.away}`);
-      touch(m.div); save(); render(); return toast(`${t('saved')}: ${m.home} ${m.hs ?? ''}–${m.as ?? ''} ${m.away}`);
+      if (!readScoreForm(form)) return toast(t('typeBothScores'));
+      const m = draftScoreForm(form);
+      scorePicks().delete(+form.dataset.id);
+      if (!m) return toast(t('nothingChanged'));
+      save(); render(); return toast(t(m.draft ? 'savedNotPublished' : 'draftCleared'));
     }
     case 'add-game': {
       const f = new FormData(form);
@@ -7264,6 +7976,19 @@ document.addEventListener('submit', e => {
       closeDialog(form.closest('dialog'));
       render();
       if (form.dataset.addkey && added.length) pickAddedTeam(form.dataset.addkey, name);
+      // Added from a friendly's "Counts for": the game now counts for it (under the name it was added as).
+      const pf = ui.pendingFriendlyCount;
+      if (pf && added.length) {
+        ui.pendingFriendlyCount = null;
+        const fr = ((((state.matchDays || {})[pf.date] || {}).youth || {})[pf.field] || []).concat(...Object.values((state.matchDays || {})[pf.date] || {}).map(sec => (sec || {})[pf.field] || [])).find(x => x.id === pf.row);
+        if (fr) {
+          fr[pf.side] = name;
+          fr.countFor = [...new Set([...(fr.countFor || []), pf.side])].filter(x => x === 'home' || x === 'away');
+          syncFriendlyCount(pf.date, pf.field, fr, fr.fdiv || ui.adminDiv);
+          logAction(`${t('friendly')} · ${fmtDate(pf.date)} · ${fr.home} ${t('vs')} ${fr.away}: ${t('friendlyNowCounts')} ${name}`);
+          save(); render();
+        }
+      }
       // Brought back from Archived teams: it's a current team again, so it comes off the archive.
       if (form.dataset.archived && added.length && state.archivedTeams) { delete state.archivedTeams[form.dataset.archived]; save(); render(); }
       return toast(added.length
@@ -7410,25 +8135,39 @@ document.addEventListener('change', e => {
     logAction(`${t('moveGroup')} · ${divName(div)}: ${x} → ${t('group')} ${e.target.value}`);
     save(); return render();
   }
-  if (['ti-set', 'ti-col', 'ti-header', 'ti-autofit'].includes(e.target.dataset.change)) {
-    const o = tableSet();
+  if (e.target.dataset.change === 'ti-date') { ui.tiDate = e.target.value; return render(); }
+  if (['ti-set', 'ti-col', 'ti-header', 'ti-autofit', 'ti-count', 'ti-color', 'ti-flag'].includes(e.target.dataset.change)) {
+    const kind = ['scorers', 'scores'].includes(ui.tiKind) ? ui.tiKind : 'standings', o = imgSet(kind);
+    if (e.target.dataset.change === 'ti-color') {
+      // a hex code, with or without #; 3 digits (#FFF) count as 6
+      let h = e.target.value.trim().replace(/^#/, '');
+      if (/^[0-9a-f]{3}$/i.test(h)) h = h.split('').map(x => x + x).join('');
+      if (!/^[0-9a-f]{6}$/i.test(h)) { e.target.value = o[e.target.dataset.k].toUpperCase(); return toast(t('hexBad')); }
+      o[e.target.dataset.k] = `#${h.toLowerCase()}`;
+    }
+    if (e.target.dataset.change === 'ti-flag') o[e.target.dataset.k] = e.target.checked;
+    if (e.target.dataset.change === 'ti-count') o[e.target.dataset.k] = +e.target.value;
     if (e.target.dataset.change === 'ti-autofit') o.autoFit = e.target.checked;
     if (e.target.dataset.change === 'ti-set') {
       const k = e.target.dataset.k, inch = e.target.dataset.unit === 'in';
       let n = parseFloat(e.target.value);
-      if (k === 'height' && e.target.value.trim() === '') n = 0;
-      if (!(n >= 0) || (n === 0 && k !== 'height')) return;
+      const zeroOk = ['height', 'headHeight', 'spaceBelow'].includes(k) || k.startsWith('col:');
+      if (zeroOk && e.target.value.trim() === '') n = 0;
+      if (!(n >= 0) || (n === 0 && !zeroOk)) return;
       // leaving the automatic height as it was shown doesn't fix it
-      if (k === 'height' && !(o.height > 0) && e.target.classList.contains('auto-val') && Math.round(n * (inch ? 96 : 1)) === Math.round(tableUsed(ui.adminDiv).natural)) return;
+      if (k === 'height' && !(o.height > 0) && e.target.classList.contains('auto-val') && Math.round(n * (inch ? 96 : 1)) === Math.round(tableUsed(ui.adminDiv, kind).natural)) return;
       if (e.target.dataset.unit === 'pt') n = n / 0.75;
       else if (inch) n = n * 96;
-      const lo = { width: 400, height: 0, rowHeight: 12, fontSize: 8, logoSize: 8 }[k], hi = { width: 1600, height: 2400, rowHeight: 80, fontSize: 32, logoSize: 70 }[k];
+      const key = k.startsWith('col:') ? 'colWidth' : k;
+      const lo = { width: 400, height: 0, rowHeight: 12, fontSize: 8, logoSize: 8, headHeight: 12, spaceBelow: 0, colWidth: 20, bottomHeight: 1, rowWidth: 200 }[key], hi = { width: 1600, height: 2400, rowHeight: 120, fontSize: 32, logoSize: 70, headHeight: 120, spaceBelow: 600, colWidth: 800, bottomHeight: 60, rowWidth: 1600 }[key];
       // font sizes keep fractions so 11 pt stays 11 pt; the rest are whole pixels
-      o[k] = n === 0 ? 0 : Math.max(lo, Math.min(hi, k === 'fontSize' ? Math.round(n * 100) / 100 : Math.round(n)));
+      const top = kind === 'scores' && key === 'rowHeight' ? 400 : hi; // a score row can be taller than a table row
+      const v = n === 0 ? 0 : Math.max(lo, Math.min(top, k === 'fontSize' ? Math.round(n * 100) / 100 : Math.round(n)));
+      if (k.startsWith('col:')) o.colWidths = { ...o.colWidths, [k.slice(4)]: v }; else o[k] = v;
     }
-    if (e.target.dataset.change === 'ti-col') o.cols = TABLE_COLS.map(c => c[0]).filter(k => (k === e.target.value ? e.target.checked : o.cols.includes(k)));
+    if (e.target.dataset.change === 'ti-col') o.cols = (kind === 'scorers' ? SCORER_COLS : TABLE_COLS).map(c => c[0]).filter(k => (k === e.target.value ? e.target.checked : o.cols.includes(k)));
     if (e.target.dataset.change === 'ti-header') o.headerRow = e.target.checked;
-    state.tableImage = o;
+    state[imgKey(kind)] = o;
     save();
     return render();
   }
@@ -7602,6 +8341,54 @@ document.addEventListener('change', e => {
     return;
   }
   // Postponed saves right away and moves the game to the Postponed tab, where its date and score go.
+  if (e.target.dataset.change === 'score-pick') {
+    const id = +e.target.closest('form').dataset.id;
+    if (e.target.checked) scorePicks().add(id); else scorePicks().delete(id);
+    return refreshSaveAll();
+  }
+  if (e.target.dataset.change === 'score-pick-all') {
+    document.querySelectorAll('form.score-row').forEach(f => (e.target.checked ? scorePicks().add(+f.dataset.id) : scorePicks().delete(+f.dataset.id)));
+    return refreshSaveAll();
+  }
+  if (e.target.dataset.change === 'reg-btn') return saveRegGroup(e.target.closest('[data-reg-group]'));
+  if (e.target.dataset.change === 'reg-card') {
+    const id = e.target.closest('[data-reg-card]').dataset.regCard, f = e.target.dataset.f, v = e.target.value.trim();
+    const rc = regCardsState();
+    if (rc.added.some(x => x.id === id)) state.regCards = { ...rc, added: rc.added.map(x => (x.id === id ? { ...x, [f]: v } : x)) };
+    else {
+      const def = REG_SECTIONS.flatMap(([sec]) => regCardDefaults(sec)).find(x => x.id === id) || {};
+      const e2 = { ...(rc.edits[id] || {}), [f]: v };
+      if (v === (def[f] || '')) delete e2[f]; // back to how it started
+      const edits = { ...rc.edits, [id]: e2 };
+      if (!Object.keys(e2).length) delete edits[id];
+      state.regCards = { ...rc, edits };
+    }
+    save(); return render();
+  }
+  if (e.target.dataset.change === 'friendly-score' || e.target.dataset.change === 'friendly-count') {
+    const { date, field, r } = findFriendly(e.target);
+    if (!r) return;
+    // A team that isn't in the division yet: add it first (Add team, already filled in), then it counts.
+    if (e.target.dataset.needsTeam) {
+      e.target.checked = false;
+      const div = r.fdiv || ui.adminDiv, side = e.target.dataset.side;
+      ui.pendingFriendlyCount = { date, field, row: r.id, side };
+      return openAddTeam('', false, div, '', null, r[side], t('friendlyAddFirst').replace('{x}', r[side]).replace(/\{div\}/g, divName(div)));
+    }
+    if (e.target.dataset.change === 'friendly-score') {
+      const v = e.target.value.trim();
+      r[e.target.dataset.side] = v === '' ? null : Math.max(0, parseInt(v, 10) || 0);
+    } else {
+      const set = new Set(r.countFor || []);
+      set[e.target.checked ? 'add' : 'delete'](e.target.dataset.side);
+      r.countFor = ['home', 'away'].filter(x => set.has(x));
+      const name = r[e.target.dataset.side];
+      logAction(`${t('friendly')} · ${fmtDate(date)} · ${r.home} ${t('vs')} ${r.away}: ${e.target.checked ? t('friendlyNowCounts') : t('friendlyNoLongerCounts')} ${name}`);
+    }
+    syncFriendlyCount(date, field, r, r.fdiv || ui.adminDiv);
+    save();
+    return render();
+  }
   if (e.target.dataset.change === 'postponed') {
     const m = state.matches.find(x => x.id === +e.target.form.dataset.id);
     if (e.target.checked) m.postponed = true;
@@ -7655,6 +8442,15 @@ document.addEventListener('toggle', e => {
   ui.closedFields[e.target.open ? 'delete' : 'add'](e.target.dataset.key);
 }, true);
 
+// Typing a score marks its game unsaved and shows the Save all bar.
+document.addEventListener('input', e => {
+  const f = e.target.closest && e.target.closest('form.score-row');
+  // only the score boxes (a tick box sends this too, and is handled on change)
+  if (!f || !e.target.classList.contains('score-in')) return;
+  scorePicks().add(+f.dataset.id);
+  refreshSaveAll();
+});
+
 // Tapping outside the phone admin menu closes it.
 document.addEventListener('click', e => {
   if (!ui.adminMenuOpen || e.target.closest('.admin-nav, [data-action="admin-menu"]')) return;
@@ -7665,4 +8461,9 @@ document.addEventListener('click', e => {
 window.addEventListener('hashchange', () => { ui.menuOpen = false; ui.adminMenuOpen = false; render(); window.scrollTo(0, 0); });
 
 setLang(LANG);
+// One-time data upgrades. They run on the published site only, so working on a copy here never changes the
+// league's data before it's published. (The test copy can run them by hand: upgradeGoalCols().)
+const LIVE_SITE = /(^|\.)alhambrasoccer\.com$|\.github\.io$/.test(location.hostname);
+function runUpgrades() { return LIVE_SITE ? upgradeGoalCols() : false; }
+runUpgrades();
 render();

@@ -343,7 +343,7 @@ section { margin-bottom: 36px; }
 .sheet .name-col { text-align: left; min-width: 190px; position: sticky; left: 0; background: var(--card); z-index: 1; }
 .sheet th.name-col { background: var(--ink); padding-left: 10px; }
 .sheet .cell { width: 100%; height: 33px; border: 0; background: transparent; text-align: center; font: inherit; padding: 0 4px; min-width: 34px; }
-.sheet .cell.name { text-align: left; padding: 0 10px; text-transform: uppercase; font-weight: 600; }
+.sheet .cell.name { text-align: left; padding: 0 10px; font-weight: 600; text-overflow: ellipsis; }
 .sheet .cell.name::placeholder { text-transform: none; font-weight: 500; color: #b3ad9f; }
 .sheet .cell:focus { outline: 2px solid var(--gold); outline-offset: -2px; background: #fffaf0; }
 .sheet td.total { font-weight: 800; min-width: 54px; }
@@ -1484,3 +1484,200 @@ input[type=number]::-webkit-outer-spin-button, input[type=number]::-webkit-inner
   .nav-view-site { display: block; }
   .admin-header { gap: 8px; }
 }
+
+/* Enter scores → Friendlies */
+.friendly-card { display: grid; gap: 10px; }
+.friendly-card .row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.friendly-score { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px; max-width: 420px; }
+.friendly-score .fs-team { font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.friendly-score .input.num { width: 64px; text-align: center; }
+.friendly-count { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.check-pill.not-in-div span { border-style: dashed; color: var(--muted); }
+.check-pill.not-in-div small { font-weight: 600; color: var(--gold-dark, #9a7417); }
+
+/* The score tabs wrap on a phone instead of hiding the last ones off the edge. */
+.seg { flex-wrap: wrap; max-width: 100%; }
+.friendly-group { margin-top: 16px; }
+
+/* Goleadores sheet: names keep their capitals, and the name you're editing opens up wide enough to read
+   (on a phone the name column is narrow). 16px text stops phones from zooming in while typing. */
+.sheet td.name-col:focus-within { z-index: 4; overflow: visible; }
+.sheet .cell.name:focus { position: relative; width: max(100%, min(80vw, 380px)); background: #fffaf0;
+  box-shadow: 0 6px 18px rgba(0,0,0,.18); border-radius: 6px; text-overflow: clip; }
+@media (max-width: 720px) {
+  .sheet .name-col { min-width: 150px; max-width: 46vw; }
+  .sheet .cell { font-size: 16px; }
+}
+
+/* Double forfeit: both teams lose; the score box says so instead of looking like a 0–0. */
+.score.double-ff { background: #a12a1f; }
+.double-ff-note { margin: 8px 0 0; text-align: center; font-size: 13px; font-weight: 600; color: #a12a1f; }
+.both-ff { align-self: end; }
+
+/* Register page top box: the two buttons sit apart (also when they wrap on a phone), with trophies on the right. */
+.register-card { position: relative; overflow: hidden; }
+.register-card .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 22px; }
+.register-card > :not(.reg-art) { position: relative; z-index: 1; }
+.reg-art { position: absolute; right: 28px; bottom: 0; display: flex; align-items: flex-end; opacity: .95; }
+.reg-art .trophy { width: 84px; height: 84px; margin-left: -10px; }
+.reg-art .trophy:nth-child(2) { width: 140px; height: 140px; }
+@media (min-width: 721px) { .register-card { padding-right: 320px; } }
+@media (max-width: 720px) {
+  .reg-art { top: 14px; bottom: auto; right: 12px; }
+  .reg-art .trophy { width: 40px; height: 40px; margin-left: -6px; }
+  .reg-art .trophy:nth-child(2) { width: 68px; height: 68px; }
+  .register-card .actions .btn { flex: 1 1 100%; text-align: center; }
+}
+
+/* Enter scores: games with a typed but unsaved score, and the Save all bar that floats at the bottom. */
+form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
+.save-all-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin: 16px 0; padding: 10px 12px 10px 16px; background: var(--ink); color: #fff; border-radius: 12px; }
+.save-all-bar[hidden] { display: none; }
+.save-all-bar .sab-count { font-weight: 600; }
+
+/* Table pictures: black text and bold place numbers (partner's request), a titles row that can be sized,
+   and the Goleadores version. */
+.table-img, .table-img th, .table-img td, .table-img .ti-rank, .table-img tr.top .ti-rank { color: #000; }
+.table-img .ti-rank { font-weight: 800; }
+.table-img.scorer-img .ti-club { text-align: left; font-weight: 600; white-space: nowrap; }
+.table-img.scorer-img .ti-pts { font-size: 1.15em; }
+.ti-kind { margin: 0 0 12px; }
+.ti-small { max-width: 260px; margin-top: 10px; }
+
+/* Register page: admins edit its buttons in place. */
+.reg-admin-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; }
+.reg-btns { display: inline-flex; flex-wrap: wrap; gap: 8px 12px; }
+.register-card .actions .reg-btns { display: contents; }
+.reg-edit { display: grid; gap: 8px; margin-top: 10px; padding: 10px; border: 1px dashed var(--gold); border-radius: 10px; background: rgba(212,167,44,.06); width: 100%; box-sizing: border-box; }
+.register-card .reg-edit { background: rgba(255,255,255,.06); }
+.reg-edit-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto; gap: 6px; align-items: center; }
+@media (max-width: 560px) { .reg-edit-row { grid-template-columns: minmax(0, 1fr) auto; } .reg-edit-row [data-f=url] { grid-column: 1 / 2; } }
+
+.reg-card:has(.reg-edit) { flex-wrap: wrap; }
+.reg-card .reg-edit { flex: 1 1 100%; }
+.reg-grid:has(.reg-edit) { grid-template-columns: 1fr; }
+/* Edit boxes inside the dark top box keep dark text on white. */
+.register-card .reg-edit .input { color: var(--text); background: #fff; }
+.register-card .reg-edit .icon-btn { background: #fff; color: #a12a1f; }
+.register-card .reg-edit .link-btn { color: var(--gold); }
+
+/* Admin → Register page */
+.reg-admin-card { margin-bottom: 12px; }
+.reg-admin-card h3 { margin: 0 0 6px; font-size: 16px; }
+.reg-admin-card h3 .muted { font-family: var(--body); font-size: 13px; font-weight: 500; text-transform: none; }
+.reg-admin-card .reg-edit { margin-top: 6px; }
+.reg-admin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.reg-admin-grid .reg-admin-card { margin: 0; }
+
+/* Save all, nothing changed yet: quieter */
+.save-all-bar .btn:disabled { opacity: .45; cursor: default; }
+.save-all-bar.idle .sab-count { font-weight: 500; }
+
+/* Table pictures: titles row colors, bottom row */
+.table-img th, .table-img thead th.ti-rank, .table-img.scorer-img .si-head { background: var(--hfill, #faf8f2); color: var(--hcolor, #000); }
+.table-img td.ti-bottom { height: var(--bottom); padding: 0; font-size: .3pt; line-height: 0; background: var(--hfill, #faf8f2); border: 0; }
+.hex-input { display: flex; align-items: center; gap: 8px; }
+.hex-input .input { font-family: ui-monospace, Menlo, monospace; text-transform: uppercase; }
+.hex-swatch { width: 36px; height: 36px; flex: none; border-radius: 8px; border: 1px solid var(--line); }
+/* Goleadores picture: rows like the Goleadores list on the site */
+.table-img.scorer-img { display: flex; flex-direction: column; gap: var(--gap); }
+.table-img.scorer-img.fixed.fit { justify-content: flex-start; }
+.scorer-img .si-head, .scorer-img .si-row { display: grid; grid-template-columns: var(--grid); align-items: center; gap: .8em; padding: 0 1em; box-sizing: border-box; }
+.scorer-img .si-head { height: var(--head); border-radius: 12px; font-size: .78em; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.scorer-img .si-row { height: var(--row); background: #fff; border: 1px solid #e6e1d4; border-radius: 12px; color: #000; }
+.scorer-img .si-row.si-p1 { border-color: #d4a72c; }
+.scorer-img .si-rank { text-align: center; }
+.scorer-img .si-row .si-rank b { font-family: var(--head); font-weight: 400; font-size: 1.25em; color: #6b6b6b; display: inline-grid; place-items: center; width: 2em; height: 2em; border-radius: 50%; }
+.scorer-img .si-p1 .si-rank b { background: #d4a72c; color: #10233f; }
+.scorer-img .si-p2 .si-rank b { background: #d6d6d6; color: #10233f; }
+.scorer-img .si-p3 .si-rank b { background: #d9a77a; color: #10233f; }
+.scorer-img .si-who { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+.scorer-img .si-who strong { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.scorer-img .si-who small { display: flex; align-items: center; gap: .4em; font-size: .78em; color: #444; font-weight: 500; white-space: nowrap; margin-top: .15em; }
+.scorer-img .si-who small img { width: var(--logo); height: var(--logo); object-fit: contain; flex: none; }
+.scorer-img .si-bar { height: 5px; background: #f1ede2; border-radius: 9px; margin-top: .45em; overflow: hidden; }
+.scorer-img .si-bar span { display: block; height: 100%; background: #d4a72c; border-radius: 9px; }
+.scorer-img .si-goals { text-align: right; }
+.scorer-img .si-row .si-goals { font-family: var(--head); font-size: 1.75em; }
+.scorer-img .si-bottom { height: var(--bottom); background: var(--hfill, #faf8f2); border-radius: 12px; /* same rounded corners as the titles row */ font-size: .3pt; flex: none; }
+
+/* Scores: tick boxes, Not published tag, Save / Publish bar */
+.pick-score { display: inline-flex; align-items: center; margin-right: 6px; vertical-align: middle; }
+.pick-score input { width: 18px; height: 18px; accent-color: var(--gold); cursor: pointer; }
+.tag.draft-tag { background: #fff4d6; color: #7d5a00; border: 1px solid #f0d78a; }
+.save-all-bar { flex-wrap: wrap; }
+.save-all-bar .sab-all { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+.save-all-bar .sab-all input { width: 18px; height: 18px; accent-color: var(--gold); }
+.save-all-bar .sab-count { flex: 1; min-width: 140px; }
+.save-all-bar .sab-btns { display: inline-flex; gap: 8px; }
+.save-all-bar .btn-outline { background: transparent; color: #fff; border-color: rgba(255,255,255,.55); }
+/* Admin → Register page cards */
+.reg-card-fields { display: grid; gap: 8px; }
+.reg-card-note { margin: 8px 0 4px; font-size: 13px; }
+.reg-add-card { margin: 10px 0 4px; }
+.link-btn.danger { color: #b3261e; }
+/* Titles/bottom row settings: room between the color boxes and the bottom row switch */
+.ti-look { margin-bottom: 14px; }
+.ti-look + .day-checks { margin-top: 0; margin-bottom: 14px; }
+.save-all-bar .btn-outline.sab-unpub { color: #ffb4ab; border-color: rgba(255,180,171,.6); }
+/* Goleadores sheet: a week the team had no game */
+.sheet th.no-game, .sheet td.no-game, .sheet tbody tr td.no-game, .sheet tfoot tr td.no-game { background: repeating-linear-gradient(135deg, #f1efe9 0 6px, #e8e5dc 6px 12px); color: #9a968c; }
+.sheet td.no-game .cell { background: transparent; }
+
+/* Weekly scores picture: logo · score · vs · score · logo */
+.scores-img { background: transparent; font-family: var(--body); box-sizing: border-box; }
+.scores-img .sx-col { display: flex; flex-direction: column; gap: calc(var(--h) * .23); }
+.scores-img .sx-cols { display: grid; grid-template-columns: var(--colw) var(--colw); column-gap: var(--colgap); }
+.scores-img .sx-last { display: flex; justify-content: center; margin-top: calc(var(--h) * .23); }
+.scores-img .sx-last .sx-row { width: var(--colw); }
+.scores-img .sx-row { display: grid; grid-template-columns: 1fr .92fr 1.02fr .92fr 1fr; height: var(--h); }
+.scores-img .sx-row > span { display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.scores-img .sx-logo { background: #fff; padding: calc(var(--s) * .08); box-sizing: border-box; }
+.scores-img .sx-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.scores-img .sx-logo b { font-size: calc(var(--s) * .14); text-align: center; line-height: 1.1; color: #000; text-transform: uppercase; }
+.scores-img .sx-num { background: var(--fill); color: var(--num); font-family: var(--head); font-weight: 600; font-size: calc(var(--s) * .78); line-height: 1; }
+.scores-img .sx-vs { background: #fff; color: #000; font-weight: 800; font-size: calc(var(--s) * .34); letter-spacing: -.01em; }
+.scores-img .sx-none { color: #6b6b6b; padding: 20px; }
+/* Instagram block at the top of every public page; on computers a slim bar */
+.insta-strip { padding-top: 18px; }
+.insta-strip .promo-insta { display: flex; }
+@media (min-width: 641px) {
+  .insta-strip .promo-insta { min-height: 0; border-radius: 14px; }
+  .insta-strip .promo-insta:hover { transform: none; }
+  .insta-strip .promo-text { flex-direction: row; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 6px 16px; padding: 12px 20px; max-width: calc(100% - 90px); }
+  .insta-strip .promo-text .eyebrow { display: none; }
+  .insta-strip .promo-text h2 { font-size: 19px; }
+  .insta-strip .promo-text p { margin: 0; font-size: 13.5px; }
+  .insta-strip .promo-insta-icon { width: 46px; height: 46px; border-radius: 12px; right: 22px; }
+}
+/* Picture previews: zoom */
+.ti-zoom { display: flex; align-items: center; gap: 6px; margin: 4px 0 8px; flex-wrap: wrap; }
+.ti-zoom .btn { min-width: 38px; }
+.ti-zoom-val { min-width: 48px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ti-zoomed { width: max-content; }
+/* ---- Fit-and-finish pass ---- */
+/* Score rows: the buttons wrap instead of running off the edge */
+.score-row .row-actions { flex-wrap: wrap; }
+@media (max-width: 640px) {
+  .score-row .row-actions { justify-content: center; }
+  /* phones: each team's logo above its name, so names get the whole column and don't split mid-word */
+  .score-row .t-home, .score-row .t-away { display: flex; justify-content: center; text-align: center; font-size: 13px; line-height: 1.15; }
+  .score-row .t-in { flex-direction: column; gap: 4px; }
+  .score-row .t-home .t-in { flex-direction: column-reverse; justify-content: center; }
+  .row-main { grid-template-columns: minmax(0, 1fr) 46px auto 46px minmax(0, 1fr); gap: 6px; }
+}
+/* the note above the game-day picker keeps its own line */
+.note + .day-picker { margin-top: 8px; }
+/* Standings on small phones: tighter cells so the table fits through Pts */
+@media (max-width: 400px) {
+  .table-card .table th, .table-card .table td { padding-left: 4px; padding-right: 4px; }
+  .team-cell .mini-logo { width: 26px; height: 26px; }
+  .team-cell .team-with-logo { gap: 7px; }
+}
+.nowrap { white-space: nowrap; }
+/* Standings and cup pictures: the card is only as tall as its content, and the 4×5 picture centers it
+   (equal white above and below) instead of leaving all the white under a short table. */
+.export-card.standings, .export-card.cup { min-height: 0; }
+/* when a score row's buttons sit under the score (narrower screens), center them under it */
+@media (max-width: 1200px) { .score-row .row-actions { justify-content: center; } .score-row .postpone-row { justify-content: center; } }

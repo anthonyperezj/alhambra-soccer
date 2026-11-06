@@ -46,6 +46,9 @@ function applyCloud(parts) {
   next.admins = state.admins;
   CLOUD.synced = { ...parts };
   state = addSeasons(next);
+  // a one-time upgrade of the data (see runUpgrades) is saved online by the first admin signed in
+  if (runUpgrades() && CLOUD.user) setTimeout(() => save(), 1500);
+  CLOUD.upgraded = CLOUD.upgraded || state.scorerCols === 'league' && !('scorerCols' in parts);
   for (let i = DIVISIONS.length - 1; i >= 0; i--) if (DIVISIONS[i].custom) DIVISIONS.splice(i, 1);
   (state.leagues || []).forEach(addDivision);
   applyFieldChanges();
@@ -171,6 +174,8 @@ if (CLOUD.on) {
     writeFlag('asl-admin', !!u);
     writeWho(u ? u.email : '');
     if (u && CLOUD.empty) pushAll();
+    // History shows names, not emails: tidy older lines once the online data is in.
+    if (u) { const tidy = () => (CLOUD.ready ? (scrubLogEmails() || CLOUD.upgraded) && save() : setTimeout(tidy, 800)); setTimeout(tidy, 800); }
     render();
   });
 }
