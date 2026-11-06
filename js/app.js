@@ -2162,7 +2162,7 @@ function regCardHTML(c) {
 function regCardEditHTML(c) {
   const f = (k, label, ph = '') => `<label class="field">${t(label)}<input class="input" data-change="reg-card" data-f="${k}" value="${esc(c[k] || '')}" placeholder="${esc(ph)}"></label>`;
   return `<section class="card reg-admin-card" data-reg-card="${esc(c.id)}">
-      <div class="reg-card-fields">${f('title', 'regCardTitle', c.def ? c.def.title : '')}${f('desc', 'regCardDesc', t('regCardDescPh'))}${f('url', 'regBtnLink', 'https://…')}</div>
+      <div class="reg-card-fields">${f('title', 'regFieldTitle', c.def ? c.def.title : '')}${f('desc', 'regCardDesc', t('regCardDescPh'))}${f('url', 'regBtnLink', 'https://…')}</div>
       <p class="muted reg-card-note">${c.url ? `${t('regCardButton')}: <b>${t('registerBtn')}</b>` : t('regCardNoLink')}</p>
       <button type="button" class="link-btn small danger" data-action="ask" data-confirm="reg-card-rm" data-id="${esc(c.id)}" data-ask="regCardRmQ">${t('regCardRemove')}</button>
     </section>`;
@@ -5810,6 +5810,7 @@ function pageAdminRotation() {
     <section class="card rot-numbers">
       <div class="box-head"><h2>${t('teamNumbers')}</h2>
         ${rotationSwitch(div, t('rotationAuto'))}
+        <label class="strict-toggle" title="${t('rotPastTooHelp')}"><input type="checkbox" data-change="rot-past-too" ${ui.rotPastToo ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${t('rotPastToo')}</span></label>
         <label class="field inline">${t('howManyNumbers')} <input class="input" type="number" min="2" max="30" value="${rot.size}" data-change="rot-size"></label>
         <span class="field inline">${t('gamesInSeason')} <span class="stepper-cell">
           <button type="button" class="icon-btn" data-action="season-games" data-for="${div}" data-step="-1" aria-label="−1">−</button>
@@ -5822,6 +5823,7 @@ function pageAdminRotation() {
           ${gone.size ? `<optgroup label="${t('withdrewGroup')}">${[...gone].map(tm => `<option value="${esc(tm)}" ${tm === name(n) ? 'selected' : ''}>${esc(tm)} (${t('withdrewTag')})</option>`).join('')}</optgroup>` : ''}
           ${addTeamOpt()}
         </select></label>`).join('')}</div>
+      <p class="note">${t(ui.rotPastToo ? 'rotPastTooOn' : 'rotPastTooOff')}</p>
       ${missing.length ? `<p class="warn">${t('noNumberYet')}: ${missing.map(esc).join(', ')}</p>` : ''}
       <div class="row-actions">
         ${missing.length ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-fill">${t('fillEmptyNumbers')}</button>` : ''}
@@ -5887,9 +5889,14 @@ function syncRotationForfeits() {
   if (changed) save();
 }
 
-function setRotation(div, rot, text) {
+// pastToo: the same change is made to the earlier games' numbers as well (only the chart; games already
+// booked or played keep their teams and scores).
+function setRotation(div, rot, text, pastToo) {
   freezePastRotation(div);
-  rot = { ...rot, past: rotationOf(div).past };
+  const past = { ...(rotationOf(div).past || {}) };
+  if (pastToo) Object.keys(past).forEach(g => { past[g] = { ...past[g], numbers: pastToo(past[g].numbers, past[g].size) }; });
+  rot = { ...rot, past };
+  if (pastToo) text += ` (${t('rotPastToo').toLowerCase()})`;
   // A withdrawn team whose number now goes to another team: the games it still had (from today on) aren't
   // forfeits anymore; the new team plays them. Games already past keep their 3–0.
   const before = rotationOf(div).numbers;
@@ -8087,14 +8094,19 @@ document.addEventListener('change', e => {
     const numbers = Object.fromEntries(Object.entries(rot.numbers).filter(([n]) => +n <= size));
     return setRotation(ui.adminDiv, { size, numbers }, `${t('howManyNumbers')} ${size}`);
   }
+  if (e.target.dataset.change === 'rot-past-too') { ui.rotPastToo = e.target.checked; return render(); }
   if (e.target.dataset.change === 'rot-num') {
     const rot = rotationOf(ui.adminDiv), n = e.target.dataset.n, team = e.target.value;
-    const numbers = { ...rot.numbers };
     // A team can only have one number: picking it here swaps it with whoever had this number.
-    const had = Object.keys(numbers).find(k => numbers[k] === team && k !== n);
-    if (had) { if (numbers[n]) numbers[had] = numbers[n]; else delete numbers[had]; }
-    if (team) numbers[n] = team; else delete numbers[n];
-    return setRotation(ui.adminDiv, { size: rot.size, numbers }, team ? `${n} = ${team}` : `${n} = —`);
+    const apply = (was, size = rot.size) => {
+      const numbers = { ...was };
+      if (+n > size) return numbers; // that number didn't exist back then
+      const had = Object.keys(numbers).find(k => numbers[k] === team && k !== n);
+      if (had) { if (numbers[n]) numbers[had] = numbers[n]; else delete numbers[had]; }
+      if (team) numbers[n] = team; else delete numbers[n];
+      return numbers;
+    };
+    return setRotation(ui.adminDiv, { size: rot.size, numbers: apply(rot.numbers) }, team ? `${n} = ${team}` : `${n} = —`, ui.rotPastToo ? apply : null);
   }
   if (['po-size', 'po-round', 'po-third'].includes(e.target.dataset.change)) {
     const form = e.target.form;
