@@ -5219,12 +5219,50 @@ const exportLibs = async () => {
 };
 const safeName = x => x.replace(/[\\/:*?"<>|]/g, '-');
 // `bg` null = a see-through background (for a table cut out to drop into slides).
+// A team name too long for its picture gets smaller text (only that name), so the table stays inside the
+// picture's width. Runs on the preview and on the copy drawn for saving.
+function fitLongNames(root) {
+  const textW = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
+  root.querySelectorAll('.table-img table, .export-card .table').forEach(table => {
+    const box = table.closest('.table-img') || table.closest('.table-card') || table.parentElement;
+    const cs = getComputedStyle(box);
+    const room = box.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const cells = [...table.querySelectorAll('td.ti-team, td.team-cell')];
+    if (!cells.length || table.scrollWidth <= room + 0.5) return;
+    // the room the name column can have: the picture's width minus every other column
+    const colW = Math.max(...cells.map(c => c.getBoundingClientRect().width));
+    const avail = Math.max(60, room - (table.scrollWidth - colW) - 2);
+    const lines = el => { const r = document.createRange(); r.selectNodeContents(el); return new Set([...r.getClientRects()].map(x => Math.round(x.top))).size; };
+    // In rounds, so every long name is narrowed before any is measured for wrapping (the column is as wide
+    // as its widest name).
+    const inner = c => avail - (parseFloat(getComputedStyle(c).paddingLeft) || 0) - (parseFloat(getComputedStyle(c).paddingRight) || 0);
+    const long = cells.filter(c => textW(c) > inner(c)).map(c => ({ c, f0: parseFloat(getComputedStyle(c).fontSize) }));
+    // 1) smaller text on one line, down to about 70%
+    long.forEach(x => {
+      Object.assign(x.c.style, { width: `${avail}px`, maxWidth: `${avail}px`, whiteSpace: 'nowrap' });
+      x.f = x.f0;
+      while (textW(x.c) > inner(x.c) && x.f > x.f0 * 0.7) { x.f *= 0.95; x.c.style.fontSize = `${x.f}px`; }
+    });
+    // 2) a name still too long goes on two lines, smaller still if it needs it
+    const wrap = long.filter(x => textW(x.c) > inner(x.c));
+    wrap.forEach(x => Object.assign(x.c.style, { whiteSpace: 'normal', lineHeight: '1.05', overflowWrap: 'anywhere' }));
+    // (never below about half size: an extremely long name takes a third line instead of becoming unreadable)
+    wrap.forEach(x => { while ((lines(x.c) > 2 || x.c.scrollWidth > x.c.clientWidth + 0.5) && x.f > x.f0 * 0.55) { x.f *= 0.95; x.c.style.fontSize = `${x.f}px`; } });
+  });
+  // Goleadores picture: a player or team name wider than its space gets smaller instead of being cut off
+  root.querySelectorAll('.scorer-img .si-who strong, .scorer-img .si-who small').forEach(el => {
+    const f0 = parseFloat(getComputedStyle(el).fontSize);
+    for (let f = f0; el.scrollWidth > el.clientWidth + 0.5 && f > f0 * 0.5; f *= 0.94) el.style.fontSize = `${f}px`;
+  });
+}
 async function snapPages(html, scale = 2, bg = '#ffffff') {
   const stage = document.createElement('div');
   stage.className = 'export-stage';
   stage.innerHTML = html;
   document.body.appendChild(stage);
   await Promise.all([...stage.querySelectorAll('img')].map(img => (img.complete ? null : new Promise(ok => { img.onload = img.onerror = ok; }))));
+  if (document.fonts) await document.fonts.ready;
+  fitLongNames(stage);
   const out = [];
   try { for (const el of stage.children) out.push(await html2canvas(el, { scale, backgroundColor: bg, useCORS: true })); }
   finally { stage.remove(); }
@@ -5602,6 +5640,7 @@ function fitTiPreview() {
   const box = document.querySelector('.ti-preview'), inner = box && box.querySelector('.ti-zoomed');
   if (!inner) return;
   inner.style.zoom = 1;
+  fitLongNames(inner);
   const pic = inner.firstElementChild;
   const room = box.clientWidth - 28; // the preview's padding
   const fit = pic && pic.offsetWidth ? Math.min(1, room / pic.offsetWidth) : 1;
