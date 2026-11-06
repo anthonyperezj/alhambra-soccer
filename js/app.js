@@ -693,8 +693,12 @@ function leaders(div, scorers = state.scorers, past) {
     }, 0);
     return goals === s.goals ? s : { ...s, goals };
   };
+  // Most goals first; players tied on goals go in the order of their teams in the standings, then by name.
+  let table = [];
+  try { table = (past ? standings(div, past.matches, past.teams, past.withdrawn || []) : standings(div)).map(r => r.team); } catch (e) { table = []; }
+  const place = team => { const i = table.indexOf(team); return i < 0 ? 999 : i; };
   return scorers.filter(s => s.div === div && !s.own && !hide.has(s.team)).map(counted).filter(s => s.goals > 0)
-    .sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
+    .sort((a, b) => b.goals - a.goals || place(a.team) - place(b.team) || a.name.localeCompare(b.name));
 }
 
 // When a division's standings/goleadores last changed: an admin edit time, or else the latest result date.
@@ -1291,39 +1295,16 @@ function standingsTable(div, compact, limit, past) {
   </div>`;
 }
 
-// The top `limit` scorers. When a group tied on goals doesn't all fit, players from teams that aren't
-// on the list yet get the spots first, then it goes by name.
-function topScorers(all, limit) {
-  const picked = [];
-  const teams = new Set();
-  for (let i = 0; i < all.length && picked.length < limit;) {
-    const group = all.filter(s => s.goals === all[i].goals);
-    i += group.length;
-    const room = limit - picked.length;
-    let chosen = group;
-    if (group.length > room) {
-      // One player per team that isn't shown yet, then anyone left, keeping name order.
-      chosen = [];
-      const newTeams = new Set();
-      for (const s of group) {
-        if (chosen.length < room && !teams.has(s.team) && !newTeams.has(s.team)) { chosen.push(s); newTeams.add(s.team); }
-      }
-      for (const s of group) if (chosen.length < room && !chosen.includes(s)) chosen.push(s);
-      chosen.sort((a, b) => a.name.localeCompare(b.name));
-    }
-    chosen.forEach(s => { picked.push(s); teams.add(s.team); });
-  }
-  return picked;
-}
+// The top `limit` scorers, in Goleadores order (ties already go by the teams' places in the standings).
+const topScorers = (all, limit) => all.slice(0, limit);
 
 function scorerList(div, limit, past) {
   const all = past ? leaders(div, past.scorers, past) : leaders(div);
   const list = limit ? topScorers(all, limit) : all;
   const max = all[0] ? all[0].goals : 1;
-  // Players tied on goals share a rank.
-  const rank = s => all.findIndex(x => x.goals === s.goals) + 1;
-  return list.length ? `<ol class="scorer-list ${limit ? 'compact' : ''}">${list.map(s => {
-    const r = rank(s);
+  // Numbered 1, 2, 3… down the list, ties included.
+  return list.length ? `<ol class="scorer-list ${limit ? 'compact' : ''}">${list.map((s, i) => {
+    const r = i + 1;
     return `<li class="scorer ${r <= 3 ? 'podium p' + r : ''}">
       <span class="rank">${r}</span>
       <span class="who"><strong>${esc(s.name)}</strong><small class="team-with-logo">${publicLogo(s.team, false, div)}${esc(s.team)}</small>
@@ -5354,6 +5335,8 @@ function fourByFive(c) {
   g.drawImage(c, (out.width - w) / 2, (out.height - h) / 2, w, h);
   return out;
 }
+// Saved pictures are named "[Division] [Game #] [Table type]", e.g. "40+ Game 9 Standings.png".
+const picName = (div, game, type) => safeName(`${divName(div)}${game ? ` ${t('game')} ${game}` : ''} ${type}`);
 function exportCard(btn) {
   const { what, as } = btn.dataset;
   const div = btn.dataset.pdiv || (what === 'scorers' ? scorerDiv(ui.div) : ui.div);
@@ -5361,21 +5344,19 @@ function exportCard(btn) {
     if (what === 'scoresImg') {
       const date = ui.tiDate;
       const [c] = await snapPages(scoresImageHTML(div, date), EXPORT_SCALE, null);
-      return downloadPng(c, safeName(`LA Alhambra Soccer League ${divName(div)} ${t('game')} ${gameNumber(div, date)} ${t('scoresWord')} ${fileDate(date)}.png`));
+      return downloadPng(c, `${picName(div, gameNumber(div, date), t('scoresWord'))}.png`);
     }
     if (what === 'table' || what === 'scorerTable') {
       // Just the table, cut out with a see-through background, at its own size.
       const sc = what === 'scorerTable';
       const [c] = await snapPages(sc ? scorerImageHTML(div) : tableImageHTML(div), EXPORT_SCALE, null);
-      return downloadPng(c, safeName(`Alhambra ${t(sc ? 'scorers' : 'standings')} ${divName(div)} ${t('tableOnlyFile')} ${fileDate(todayISO())}.png`));
+      return downloadPng(c, `${picName(div, gameThrough(div), t(sc ? 'scorers' : 'standings'))}.png`);
     }
     const [c] = await snapPages(exportCardHTML(what, div), EXPORT_SCALE);
-    // "LA Alhambra Soccer League U-11 Game 2" (Goleadores add their name so the two pictures don't share one).
-    const game = what === 'standings' || what === 'scorers' ? gameThrough(div) : 0;
-    const name = (what === 'standings' || what === 'scorers'
-      ? `LA Alhambra Soccer League ${divName(div)}${game ? ` ${t('game')} ${game}` : ''}${what === 'scorers' ? ` ${t('scorers')}` : ''}`
-      : what === 'tour' ? `LA Alhambra Soccer League ${exportTitle(what, div).replace(/ · /g, ' ')}`
-      : `LA Alhambra Soccer League ${divName(div)} ${t(what === 'copa' ? 'copa' : 'playoffs')}`).replace(/[\\/:*?"<>|]/g, '-');
+    // "U-11 Game 2 Standings", "U-11 Game 2 Goleadores"; cups: "U-11 Playoffs", a tournament by its own title.
+    const name = what === 'standings' || what === 'scorers' ? picName(div, gameThrough(div), t(what))
+      : what === 'tour' ? safeName(exportTitle(what, div).replace(/ · /g, ' '))
+      : picName(div, 0, t(what === 'copa' ? 'copa' : 'playoffs'));
     if (as === 'png') downloadPng(fourByFive(c), `${name}.png`); else downloadPdf([c], `${name}.pdf`, 0.5);
   });
 }
@@ -5563,13 +5544,12 @@ function scorerImageHTML(div) {
   const rows = scorerImgRows(div), all = leaders(div), max = all[0] ? all[0].goals : 1;
   const used = tableUsed(div, 'scorers');
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
-  const rank = s => all.findIndex(x => x.goals === s.goals) + 1;
   // columns: rank · player · goals (a typed width wins; otherwise the player takes the room)
   const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
   return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
     ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
-    ${rows.map(sc => {
-      const r = rank(sc), logo = on('logo') && teamLogo(sc.team, div);
+    ${rows.map((sc, i) => {
+      const r = i + 1, logo = on('logo') && teamLogo(sc.team, div);
       return `<div class="si-row ${r <= 3 ? `si-p${r}` : ''}">
         ${on('rank') ? `<span class="si-rank"><b>${r}</b></span>` : ''}
         <span class="si-who"><strong>${esc(sc.name)}</strong>${on('team') ? `<small>${logo ? `<img src="${logo}" alt="">` : ''}${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
