@@ -187,7 +187,10 @@ section { margin-bottom: 36px; }
 .table .left { text-align: left; }
 .table .rank { color: var(--muted); font-weight: 700; width: 36px; }
 .standings tr.top .rank { color: var(--ink); }
-.standings tr.top td:first-child { box-shadow: inset 4px 0 0 var(--gold); }
+/* 1st, 2nd and 3rd: a thin gold, silver or bronze line at the left (drawn as a background so saved pictures keep it thin) */
+.standings tr.top td:first-child { background-image: linear-gradient(90deg, var(--gold) 0 4px, transparent 4px); }
+.standings tr.second td:first-child { background-image: linear-gradient(90deg, #b4b4b4 0 4px, transparent 4px); }
+.standings tr.third td:first-child { background-image: linear-gradient(90deg, #c8864d 0 4px, transparent 4px); }
 .team-cell { font-weight: 600; white-space: nowrap; }
 .team-with-logo { display: inline-flex; align-items: center; gap: 8px; }
 .mini-logo { width: 24px; height: 24px; object-fit: contain; flex: none; display: inline-block; }
@@ -1633,8 +1636,8 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .scores-img .sx-last .sx-row { width: var(--colw); }
 .scores-img .sx-row { display: grid; grid-template-columns: 1fr .92fr 1.02fr .92fr 1fr; height: var(--h); }
 .scores-img .sx-row > span { display: flex; align-items: center; justify-content: center; overflow: hidden; }
-.scores-img .sx-logo { background: #fff; padding: calc(var(--s) * .08); box-sizing: border-box; }
-.scores-img .sx-logo img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.scores-img .sx-logo { background: #fff; padding: 0; box-sizing: border-box; }
+.scores-img .sx-logo img { max-width: var(--lp, 84%); max-height: var(--lp, 84%); object-fit: contain; }
 .scores-img .sx-logo b { font-size: calc(var(--s) * .14); text-align: center; line-height: 1.1; color: #000; text-transform: uppercase; }
 .scores-img .sx-num { background: var(--fill); color: var(--num); font-family: var(--head); font-weight: 600; font-size: calc(var(--s) * .78); line-height: 1; }
 .scores-img .sx-vs { background: #fff; color: #000; font-weight: 800; font-size: calc(var(--s) * .34); letter-spacing: -.01em; }
@@ -1681,3 +1684,30 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .export-card.standings, .export-card.cup { min-height: 0; }
 /* when a score row's buttons sit under the score (narrower screens), center them under it */
 @media (max-width: 1200px) { .score-row .row-actions { justify-content: center; } .score-row .postpone-row { justify-content: center; } }
+/* Standings picture: no outline; 1st place keeps only the thin gold line (drawn as a background, which the
+   picture export keeps thin); bold text option */
+.table-img table { border: 0; }
+.table-img tr.top .ti-rank, .table-img tr.top td:first-child { box-shadow: none; background: linear-gradient(90deg, #d4a72c 0 4px, transparent 4px); }
+.table-img tbody tr.top td.ti-rank { background-color: transparent; }
+.table-img.bold td, .table-img.bold .ti-team, .table-img.bold .ti-club, .table-img.bold .si-who small { font-weight: 800; }
+.table-img.bold th, .scorer-img.bold .si-head { font-weight: 800; }
+/* Weekly scores: the numbers' font sits a little low on its line; lift it so it's centered in the box */
+.scores-img .sx-num { padding-bottom: .09em; box-sizing: border-box; }
+.scores-img .sx-vs { padding-bottom: .23em; box-sizing: border-box; }
+/* Admin → Home Page */
+.hp-card { margin-bottom: 14px; }
+.hp-card h3 { margin: 0 0 10px; font-size: 16px; }
+.hp-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 14px; }
+.hp-fields textarea { resize: vertical; font-family: inherit; }
+/* Standings picture: silver line for 2nd, bronze for 3rd */
+.table-img tr.second .ti-rank, .table-img tr.second td:first-child { background: linear-gradient(90deg, #b4b4b4 0 4px, transparent 4px); }
+.table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(90deg, #c8864d 0 4px, transparent 4px); }
+/* Form: centered in its column (website and pictures) */
+.table .form-col { text-align: center; }
+.table-img .ti-form, .table-img th.ti-form { text-align: center; }
+/* In the standings picture the Form chips grow and shrink with the table's text size, letter centered */
+.table-img .form { gap: .2em; vertical-align: middle; }
+.table-img .form i { width: 1.45em; height: 1.45em; font-size: .72em; line-height: 1.45em; border-radius: .35em; padding: 0; display: inline-block; text-align: center; box-sizing: border-box; }
+/* Rows of buttons wrap onto a new line instead of running off narrow screens */
+.row-actions { flex-wrap: wrap; }
+.row-actions .btn { max-width: 100%; white-space: normal; text-align: center; }

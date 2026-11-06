@@ -170,7 +170,7 @@ function autoLogText(changes, prev, now) {
     }
     const label = { rotation: t('rotation'), standingsHidden: t('hideFromStandings'), redCards: t('redCards'), gameLengths: t('gameLength'),
       fieldsClosed: t('fields'), offDays: t('daysOff'), seasons: t('seasons'), seasonGames: t('gamesInSeason'), settings: t('settings'),
-      regButtons: t('regPageButtons'), regCards: t('regDivCards'), logos: t('teamLogos'), tableImage: t('tableImage'), scorerImage: `${t('tableImage')} · ${t('scorers')}`, playoffs: t('playoffs'), copa: t('copa'), looseTimes: t('strictTimes'),
+      regButtons: t('regPageButtons'), regCards: t('regDivCards'), homePage: t('homePageNav'), logos: t('teamLogos'), tableImage: t('tableImage'), scorerImage: `${t('tableImage')} · ${t('scorers')}`, tableImageByDiv: `${t('tableImage')} · ${t('standings')}`, scorerImageByDiv: `${t('tableImage')} · ${t('scorers')}`, scoresImageByDiv: `${t('tableImage')} · ${t('weeklyScores')}`, playoffs: t('playoffs'), copa: t('copa'), looseTimes: t('strictTimes'),
       strictTimes: t('strictTimes'), rotationOff: t('rotationAuto'), fieldsAdded: t('fields'), addedFields: t('fields'), leagues: t('seasons') }[top];
     if (!label) return;
     if (top === 'regButtons' && !a) {
@@ -1279,13 +1279,13 @@ function standingsTable(div, compact, limit, past) {
       <thead><tr>
         <th>${t('pos')}</th><th class="left">${t('team')}</th><th>${t('played')}</th>
         ${full ? `<th>${t('won')}</th><th>${t('drawn')}</th><th>${t('lost')}</th><th class="hide-sm">${t('gf')}</th><th class="hide-sm">${t('ga')}</th>` : ''}
-        <th>${t('gd')}</th><th>${t('pts')}</th><th class="hide-sm left">${t('form')}</th>
+        <th>${t('gd')}</th><th>${t('pts')}</th><th class="hide-sm form-col">${t('form')}</th>
       </tr></thead>
-      <tbody>${rows.map((r, i) => `<tr class="${i === 0 ? 'top' : ''}">
+      <tbody>${rows.map((r, i) => `<tr class="${['top', 'second', 'third'][i] || ''}">
         <td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}${esc(r.team)}</span></td><td>${r.p}</td>
         ${full ? `<td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td class="hide-sm">${r.gf}</td><td class="hide-sm">${r.ga}</td>` : ''}
         <td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td>
-        <td class="hide-sm left">${formChips(r.form)}</td>
+        <td class="hide-sm form-col">${formChips(r.form)}</td>
       </tr>`).join('')}</tbody>
     </table>
   </div>`;
@@ -1341,6 +1341,38 @@ const TROPHY = `<svg class="trophy" viewBox="0 0 120 120" aria-hidden="true">
   <rect x="34" y="92" width="52" height="9" rx="2" fill="#7d600f"/>
 </svg>`;
 
+// ---------- Home page text (Admin → Home Page) ----------
+// Each piece of text can be changed for each language (state.homePage.en / .es); an empty box uses the
+// built-in text. The links are the same in both languages (state.homePage.links).
+const HOME_TEXT = {
+  heroTitle: () => 'LA Alhambra Soccer League', heroSub: () => t('heroSub'),
+  btn1: () => t('viewStandings'), btn2: () => t('viewScorers'),
+  regEyebrow: () => t('register'), regTitle2: () => t('regCardTitle'), regSub2: () => t('regCardSub'), regBtn: () => t('registerNow'),
+  aboutEyebrow: () => t('aboutUs'), aboutTitle2: () => t('aboutCardTitle'), aboutSub2: () => t('aboutCardSub'), aboutBtn: () => t('learnMore'),
+  leadersTitle: () => t('leadersTitle'), fieldsTitle: () => t('ourFields'),
+};
+const HOME_LINKS = { btn1: '#/standings', btn2: '#/scorers', regLink: '#/register', aboutLink: '#/about' };
+const hp = k => ((state.homePage || {})[LANG] || {})[k] || HOME_TEXT[k]();
+const hpLink = k => ((state.homePage || {}).links || {})[k] || HOME_LINKS[k];
+const hrefAttrs = url => (url.startsWith('#') ? `href="${esc(url)}"` : `href="${esc(url)}" target="_blank" rel="noopener"`);
+const homeLink = (k, cls, icon) => `<a class="${cls}" ${hrefAttrs(hpLink(k))}>${hp(k) === HOME_TEXT[k]() ? icon : ''}${esc(hp(k))}${hpLink(k).startsWith('#') ? '' : ' ↗'}</a>`;
+function pageAdminHome() {
+  const hpData = state.homePage || {};
+  const mine = (hpData[LANG] || {}), links = hpData.links || {};
+  const txt = (k, long) => `<label class="field">${t(`hp_${k}`)}${long
+    ? `<textarea class="input" rows="3" data-change="hp-text" data-k="${k}" placeholder="${esc(HOME_TEXT[k]())}">${esc(mine[k] || '')}</textarea>`
+    : `<input class="input" data-change="hp-text" data-k="${k}" value="${esc(mine[k] || '')}" placeholder="${esc(HOME_TEXT[k]())}">`}</label>`;
+  const link = k => `<label class="field">${t('hp_link')}<input class="input" data-change="hp-link" data-k="${k}" value="${esc(links[k] || '')}" placeholder="${esc(HOME_LINKS[k])}"></label>`;
+  const box = (title, inner) => `<section class="card hp-card"><h3>${t(title)}</h3><div class="hp-fields">${inner}</div></section>`;
+  return adminShell('admin/homepage', `
+    <h1 class="page-title">${t('homePageNav')}</h1>
+    <p class="note">${t('hpHelp').replace('{lang}', LANG === 'es' ? 'Español' : 'English')} <a href="#/" target="_blank" rel="noopener">${t('hpView')} ↗</a></p>
+    ${box('hp_banner', `${txt('heroTitle')}${txt('heroSub', true)}${txt('btn1')}${link('btn1')}${txt('btn2')}${link('btn2')}`)}
+    ${box('hp_regCard', `${txt('regEyebrow')}${txt('regTitle2')}${txt('regSub2', true)}${txt('regBtn')}${link('regLink')}`)}
+    ${box('hp_aboutCard', `${txt('aboutEyebrow')}${txt('aboutTitle2')}${txt('aboutSub2', true)}${txt('aboutBtn')}${link('aboutLink')}`)}
+    ${box('hp_sections', `${txt('leadersTitle')}${txt('fieldsTitle')}`)}
+    ${state.homePage ? `<div class="row-actions"><button type="button" class="btn btn-outline danger-outline" data-action="ask" data-confirm="hp-reset" data-ask="hpResetQ">${t('hpReset')}</button></div>` : ''}`);
+}
 function pageHome() {
   const d = ui.div;
   return `
@@ -1349,40 +1381,40 @@ function pageHome() {
     <div class="wrap banner-inner">
       ${LOGO}
       <div>
-        <h1>LA Alhambra Soccer League</h1>
-        <p class="lead">${t('heroSub')}</p>
+        <h1>${esc(hp('heroTitle'))}</h1>
+        <p class="lead">${esc(hp('heroSub'))}</p>
         <div class="actions">
-          <a class="btn btn-gold" href="#/standings">🏆 ${t('viewStandings')}</a>
-          <a class="btn btn-ghost" href="#/scorers">⚽ ${t('viewScorers')}</a>
+          ${homeLink('btn1', 'btn btn-gold', '🏆 ')}
+          ${homeLink('btn2', 'btn btn-ghost', '⚽ ')}
         </div>
       </div>
     </div>
   </section>
   <div class="wrap promo-grid">
-    <a class="promo promo-register" href="#/register">
+    <a class="promo promo-register" ${hrefAttrs(hpLink('regLink'))}>
       <div class="promo-art">${TROPHY}${TROPHY}${TROPHY}</div>
       <div class="promo-text">
-        <span class="eyebrow">${t('register')}</span>
-        <h2>${t('regCardTitle')}</h2>
-        <p>${t('regCardSub')}</p>
-        <span class="btn btn-gold btn-sm">${t('registerNow')} →</span>
+        <span class="eyebrow">${esc(hp('regEyebrow'))}</span>
+        <h2>${esc(hp('regTitle2'))}</h2>
+        <p>${esc(hp('regSub2'))}</p>
+        <span class="btn btn-gold btn-sm">${esc(hp('regBtn'))} →</span>
       </div>
     </a>
-    <a class="promo promo-about" href="#/about">
+    <a class="promo promo-about" ${hrefAttrs(hpLink('aboutLink'))}>
       <div class="promo-art pitch-art" aria-hidden="true"><span></span></div>
       <img class="promo-logo" src="images/logo.png" alt="">
       <div class="promo-text">
-        <span class="eyebrow">${t('aboutUs')}</span>
-        <h2>${t('aboutCardTitle')}</h2>
-        <p>${t('aboutCardSub')}</p>
-        <span class="btn btn-ghost btn-sm">${t('learnMore')} →</span>
+        <span class="eyebrow">${esc(hp('aboutEyebrow'))}</span>
+        <h2>${esc(hp('aboutTitle2'))}</h2>
+        <p>${esc(hp('aboutSub2'))}</p>
+        <span class="btn btn-ghost btn-sm">${esc(hp('aboutBtn'))} →</span>
       </div>
     </a>
     ${instagramCard()}
   </div>
   <div class="wrap">
     <section class="leaders">
-      <div class="section-head"><h2>${t('leadersTitle')}</h2></div>
+      <div class="section-head"><h2>${esc(hp('leadersTitle'))}</h2></div>
       ${divPills(d)}
       ${updatedNote(d)}
       <div class="leaders-grid ${hasScorers(d) ? '' : 'single'}">
@@ -1399,7 +1431,7 @@ function pageHome() {
   </div>
   <div class="wrap">
     <section>
-      <div class="section-head"><h2>${t('ourFields')}</h2><a href="#/fields">${t('viewAll')} →</a></div>
+      <div class="section-head"><h2>${esc(hp('fieldsTitle'))}</h2><a href="#/fields">${t('viewAll')} →</a></div>
       <div class="field-rows">${locations().map(loc => `<a class="field-row" target="_blank" rel="noopener" href="${mapsLink(loc.place)}">
         <span><strong>${esc(loc.place)}</strong><small class="muted">${esc(loc.labels.join(' · '))}${placeAddress(loc.place) ? ` · ${esc(placeAddress(loc.place))}` : ''}</small></span><span class="muted">${t('directions')} ↗</span></a>`).join('')}</div>
     </section>
@@ -3095,18 +3127,21 @@ function pageArchive() {
 
 // ---------- admin ----------
 
+// Admin menu names in Title Case ("Enter Scores"); Spanish keeps its usual capitals.
+const SMALL_WORDS = new Set(['a', 'an', 'and', 'as', 'at', 'by', 'for', 'in', 'of', 'on', 'or', 'the', 'to']);
+const navTitle = txt => (LANG === 'es' ? txt : txt.split(' ').map((w, i) => (i && SMALL_WORDS.has(w.toLowerCase()) ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(' '));
 function adminShell(active, body) {
   // Grouped by how often they're used: every week, during the season, then setup.
   const groups = [
     ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards']]],
     ['navSeason', [['admin/teamgames', 'teamGames'], ['admin/teams', 'teams'], ['admin/rotation', 'rotation'], ['admin/playoffs', 'playoffs'], ['admin/tournaments', 'tournaments'], ['admin/seasons', 'seasons']]],
-    ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage'], ['admin/regpage', 'regPageButtons']]],
+    ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage'], ['admin/regpage', 'regPageButtons'], ['admin/homepage', 'homePageNav']]],
   ];
   // On a phone or tablet the list drops down from the ☰ in the black header, like the public site's menu.
   return `
   <div class="admin">
     <aside class="admin-nav ${ui.adminMenuOpen ? 'open' : ''}">
-      ${groups.map(([g, l]) => `<p class="nav-group">${t(g)}</p>${l.map(([r, k]) => `<a href="#/${r}" class="${r === active ? 'active' : ''}">${t(k)}</a>`).join('')}`).join('')}
+      ${groups.map(([g, l]) => `<p class="nav-group">${t(g)}</p>${l.map(([r, k]) => `<a href="#/${r}" class="${r === active ? 'active' : ''}">${navTitle(t(k))}</a>`).join('')}`).join('')}
 
       ${whoName() ? `<p class="signed-in">${t('signedInAs')} <b>${esc(whoName())}</b></p>` : ''}
       <a class="nav-view-site" href="#/" target="_blank" rel="noopener">${t('viewSite')} ↗</a>
@@ -5452,7 +5487,10 @@ function sheetDayLabel(d, sec) {
 const TABLE_COLS = [['rank', '#'], ['logo', 'logoCol'], ['p', 'played'], ['w', 'won'], ['d', 'drawn'], ['l', 'lost'], ['gf', 'gf'], ['ga', 'ga'], ['gd', 'gd'], ['pts', 'pts'], ['form', 'form']];
 // The titles row's fill and text colors, and a thin empty row at the bottom
 // in the titles row's color (like a row with 0.3 pt text in a spreadsheet).
-const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, bottomHeight: 4 };
+const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, bottomHeight: 4, font: 'Inter', bold: false };
+// Fonts the pictures can use (loaded in index.html, or on every computer).
+const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Bebas Neue', 'Arial', 'Georgia'];
+const imgFontCSS = o => `font-family:'${IMG_FONTS.includes(o.font) ? o.font : 'Inter'}', system-ui, sans-serif;`;
 // headHeight 0 = the titles row sizes itself; spaceBelow = empty space under the table inside the picture.
 const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, headHeight: 0, spaceBelow: 0, formCount: 5, ...IMG_LOOK, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
 // The Goleadores picture works the same way, with how many players show and each column's width (0 = auto).
@@ -5465,20 +5503,28 @@ const SCORER_GAP = 6;
 // The week's scores picture: each game as logo · score · vs · score · logo. Up to 6 games in one column;
 // more go in two even columns, with an odd last game centered under them. The score boxes' color is set here.
 // Each game's row has its own width and height; the picture is one or two rows wide.
-const SCORES_IMG_DEFAULTS = { unit: 'in', rowWidth: 640, rowHeight: 130, scoreFill: '#8b2a12', scoreColor: '#ffffff' };
+const SCORES_IMG_DEFAULTS = { unit: 'in', rowWidth: 640, rowHeight: 130, logoPct: 84, scoreFill: '#8b2a12', scoreColor: '#ffffff' };
 const imgKey = kind => ({ scorers: 'scorerImage', scores: 'scoresImage' }[kind] || 'tableImage');
-const imgSet = (kind = 'standings') => {
-  const d = kind === 'scorers' ? SCORER_IMG_DEFAULTS : kind === 'scores' ? SCORES_IMG_DEFAULTS : TABLE_DEFAULTS, o = state[imgKey(kind)] || {};
+// Each division keeps its own picture settings (state.tableImageByDiv[div]…); a division not set yet starts
+// from the settings used before divisions had their own, then the defaults.
+const imgDefaults = kind => (kind === 'scorers' ? SCORER_IMG_DEFAULTS : kind === 'scores' ? SCORES_IMG_DEFAULTS : TABLE_DEFAULTS);
+const imgSet = (kind = 'standings', div = ui.adminDiv) => {
+  const d = imgDefaults(kind), o = { ...(state[imgKey(kind)] || {}), ...((state[`${imgKey(kind)}ByDiv`] || {})[div] || {}) };
   return { ...d, ...o, ...(d.colWidths ? { colWidths: { ...d.colWidths, ...(o.colWidths || {}) } } : {}) };
 };
-const tableSet = () => imgSet('standings');
-const imgLookVars = (o, used) => `--hfill:${o.headFill};--hcolor:${o.headColor};--bottom:${used.botH}px;`;
-const scorerImgRows = div => topScorers(leaders(div), imgSet('scorers').count);
+const tableSet = div => imgSet('standings', div);
+function setImg(kind, o, div = ui.adminDiv) {
+  const key = `${imgKey(kind)}ByDiv`;
+  state[key] = { ...(state[key] || {}), [div]: o };
+  save();
+}
+const imgLookVars = (o, used) => `--hfill:${o.headFill};--hcolor:${o.headColor};--bottom:${used.botH}px;${imgFontCSS(o)}`;
+const scorerImgRows = div => topScorers(leaders(div), imgSet('scorers', div).count);
 // With Auto-fit on, a set Height decides the rows (and logos/text shrink to fit); with it off your sizes
 // stay as typed and the picture is still the Height tall (see-through under the table, or cut if longer).
 function tableUsed(div, kind = 'standings') {
   const sc = kind === 'scorers';
-  const o = imgSet(kind), n = (sc ? scorerImgRows(div) : shownStandings(div)).length, fit = o.height > 0 && o.autoFit;
+  const o = imgSet(kind, div), n = (sc ? scorerImgRows(div) : shownStandings(div)).length, fit = o.height > 0 && o.autoFit;
   const headH = o.headerRow ? (o.headHeight > 0 ? o.headHeight : Math.round(o.fontSize * 2.3)) : 0;
   const botH = o.bottomRow ? o.bottomHeight : 0;
   // the Goleadores rows are separate boxes with a little space between them (and the titles and bottom rows)
@@ -5489,21 +5535,22 @@ function tableUsed(div, kind = 'standings') {
     font: fit ? Math.max(8, Math.min(o.fontSize, Math.floor(rowH * (sc ? 0.3 : 0.62)))) : o.fontSize };
 }
 function tableImageHTML(div) {
-  const o = tableSet(), on = k => o.cols.includes(k);
+  const o = tableSet(div), on = k => o.cols.includes(k);
   const rows = shownStandings(div);
   const used = tableUsed(div);
   const head = k => ({ rank: '#', logo: '', p: t('played'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('pts'), form: t('form') }[k]);
   const stats = ['p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts', 'form'].filter(on);
-  const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount)) : r[k]);
+  // Form on the picture: the latest game first (left), then the ones before it
+  const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount).reverse()) : r[k]);
   // A height picked for the whole table: the rows share it (the titles row keeps its size), and logos and
   // text get smaller if the rows are too thin for them.
   const { headH, rowH } = used;
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   const ncols = (on('rank') ? 1 : 0) + (on('logo') ? 1 : 0) + 1 + stats.length;
-  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;${imgLookVars(o, used)}">
+  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;${imgLookVars(o, used)}">
     <table>
       ${o.headerRow ? `<thead><tr>${on('rank') ? `<th class="ti-rank">#</th>` : ''}<th class="ti-team" colspan="${on('logo') ? 2 : 1}">${t('team')}</th>${stats.map(k => `<th class="${k === 'form' ? 'ti-form' : ''}">${head(k)}</th>`).join('')}</tr></thead>` : ''}
-      <tbody>${rows.map((r, i) => `<tr class="${i === 0 ? 'top' : ''}">
+      <tbody>${rows.map((r, i) => `<tr class="${['top', 'second', 'third'][i] || ''}">
         ${on('rank') ? `<td class="ti-rank">${i + 1}</td>` : ''}${on('logo') ? `<td class="ti-logo">${teamLogo(r.team, div) ? `<img src="${teamLogo(r.team, div)}" alt="">` : ''}</td>` : ''}
         <td class="ti-team">${esc(r.team)}</td>${stats.map(k => `<td class="${k === 'pts' ? 'ti-pts' : k === 'form' ? 'ti-form' : ''}">${val(r, k)}</td>`).join('')}
       </tr>`).join('')}</tbody>
@@ -5512,14 +5559,14 @@ function tableImageHTML(div) {
 }
 // The Goleadores picture: rank, player, team (with logo) and goals, like the standings picture.
 function scorerImageHTML(div) {
-  const o = imgSet('scorers'), on = k => o.cols.includes(k), w = o.colWidths;
+  const o = imgSet('scorers', div), on = k => o.cols.includes(k), w = o.colWidths;
   const rows = scorerImgRows(div), all = leaders(div), max = all[0] ? all[0].goals : 1;
   const used = tableUsed(div, 'scorers');
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   const rank = s => all.findIndex(x => x.goals === s.goals) + 1;
   // columns: rank · player · goals (a typed width wins; otherwise the player takes the room)
   const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
-  return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
+  return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
     ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
     ${rows.map(sc => {
       const r = rank(sc), logo = on('logo') && teamLogo(sc.team, div);
@@ -5538,7 +5585,7 @@ function scoreDays(div) {
 const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
   .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m)).sort(byDateTime);
 function scoresImageHTML(div, date) {
-  const o = imgSet('scores'), games = scoreDayGames(div, date);
+  const o = imgSet('scores', div), games = scoreDayGames(div, date);
   const two = games.length > 6;
   // a row is logo 1 · score .92 · vs 1.02 · score .92 · logo 1; text and gaps follow the row's size
   const colW = o.rowWidth, H = o.rowHeight;
@@ -5554,7 +5601,7 @@ function scoresImageHTML(div, date) {
   const body = !two ? `<div class="sx-col">${games.map(row).join('')}</div>`
     : `<div class="sx-cols"><div class="sx-col">${games.slice(0, half).map(row).join('')}</div><div class="sx-col">${games.slice(half, half * 2).map(row).join('')}</div></div>
        ${games.length % 2 ? `<div class="sx-last">${row(games[games.length - 1])}</div>` : ''}`;
-  return `<div class="scores-img ${two ? 'two' : ''}" style="width:${width}px;--s:${S}px;--h:${H}px;--colw:${colW}px;--colgap:${colGap}px;--fill:${o.scoreFill};--num:${o.scoreColor}">
+  return `<div class="scores-img ${two ? 'two' : ''}" style="width:${width}px;--s:${S}px;--h:${H}px;--lp:${Math.max(20, Math.min(100, o.logoPct || 84))}%;--colw:${colW}px;--colgap:${colGap}px;--fill:${o.scoreFill};--num:${o.scoreColor}">
     ${games.length ? body : `<p class="sx-none">${t('noScoresThatDay')}</p>`}</div>`;
 }
 const tiSizeText = o => {
@@ -5584,11 +5631,12 @@ function fitTiPreview() {
   document.querySelector('.ti-zoom-val').textContent = `${Math.round(z * 100)}%`;
 }
 window.addEventListener('resize', () => { if (document.querySelector('.ti-preview')) fitTiPreview(); });
+const tiKindNow = () => (['scorers', 'scores'].includes(ui.tiKind) ? ui.tiKind : 'standings');
 const TI_KINDS = [['standings', 'standings'], ['scorers', 'scorers'], ['scores', 'weeklyScores']];
 const hexField = (o, k) => `<label class="field">${t(`ti_${k}`)}<span class="hex-input"><span class="hex-swatch" style="background:${esc(o[k])}"></span>
   <input class="input" type="text" value="${esc(o[k].toUpperCase())}" data-change="ti-color" data-k="${k}" maxlength="7" spellcheck="false" autocapitalize="characters" placeholder="#000000"></span></label>`;
 function pageScoresImage() {
-  const div = ui.adminDiv, o = imgSet('scores'), days = scoreDays(div);
+  const div = ui.adminDiv, o = imgSet('scores', div), days = scoreDays(div);
   if (!days.includes(ui.tiDate)) ui.tiDate = days[0];
   const date = ui.tiDate, n = date ? scoreDayGames(div, date).length : 0;
   const inch = o.unit === 'in', show = px => (inch ? +(px / 96).toFixed(2) : Math.round(px));
@@ -5602,9 +5650,10 @@ function pageScoresImage() {
       <div class="league-grid">
         <label class="field">${t('gameDay')}<select class="select" data-change="ti-date">${days.map(d => `<option value="${d}" ${d === date ? 'selected' : ''}>${t('game')} ${gameNumber(div, d)} · ${esc(fmtDate(d))}</option>`).join('') || `<option>${t('noScoresYet')}</option>`}</select></label>
         ${[['rowWidth', 200, 1600], ['rowHeight', 20, 400]].map(([k, lo, hi]) => `<label class="field">${t(`ti_${k}`)}<span class="len-input"><input class="input" type="number" min="${inch ? 0 : lo}" max="${inch ? +(hi / 96).toFixed(2) : hi}" step="${inch ? 0.01 : 1}" value="${show(o[k])}" data-change="ti-set" data-k="${k}" data-unit="${o.unit}"> ${inch ? 'in' : 'px'}</span></label>`).join('')}
+        <label class="field">${t('ti_logoPct')}<span class="len-input"><input class="input" type="number" min="20" max="100" step="1" value="${o.logoPct || 84}" data-change="ti-pct" data-k="logoPct"> %</span></label>
         ${hexField(o, 'scoreFill')}${hexField(o, 'scoreColor')}
       </div>
-      <p class="note">${t(n > 6 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(n > 6 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
+      <p class="note">${t('ti_perDiv').replace('{div}', divName(div)).replace(/^./, x => x.toUpperCase())}. ${t(n > 6 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(n > 6 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
       <div class="row-actions">
         <button type="button" class="btn btn-gold" data-action="export-card" data-what="scoresImg" data-as="png" data-pdiv="${div}" ${n ? '' : 'disabled'}>${t('saveScoresImage')}</button>
         <button type="button" class="btn btn-outline" data-action="ti-reset">${t('backToDefault')}</button>
@@ -5616,7 +5665,7 @@ function pageAdminTable() {
   if (ui.tiKind === 'scores') return pageScoresImage();
   const kind = ui.tiKind === 'scorers' ? 'scorers' : 'standings';
   if (kind === 'scorers') ui.adminDiv = scorerDiv(ui.adminDiv);
-  const div = ui.adminDiv, o = imgSet(kind);
+  const div = ui.adminDiv, o = imgSet(kind, div);
   const used = tableUsed(div, kind);
   const usedOf = { rowHeight: Math.round(used.rowH), logoSize: Math.round(used.logo), fontSize: used.font };
   // Every size can be typed in inches, like Google Slides shows a box's size (1 inch = 96 px), or in pixels.
@@ -5658,6 +5707,10 @@ function pageAdminTable() {
       <p class="field-label">${t('ti_columns')}</p>
       <div class="day-checks">${(kind === 'scorers' ? SCORER_COLS : TABLE_COLS).map(([k, label]) => `<label class="check-pill"><input type="checkbox" data-change="ti-col" value="${k}" ${o.cols.includes(k) ? 'checked' : ''}><span>${k === 'rank' ? '#' : t(label)}</span></label>`).join('')}
         <label class="check-pill"><input type="checkbox" data-change="ti-header" ${o.headerRow ? 'checked' : ''}><span>${t('ti_headerRow')}</span></label></div>
+      <div class="league-grid ti-look">
+        <label class="field">${t('ti_font')}<select class="select" data-change="ti-font">${IMG_FONTS.map(f => `<option ${f === o.font ? 'selected' : ''} style="font-family:'${f}'">${f}</option>`).join('')}</select></label>
+      </div>
+      <div class="day-checks"><label class="check-pill"><input type="checkbox" data-change="ti-flag" data-k="bold" ${o.bold ? 'checked' : ''}><span>${t('ti_bold')}</span></label></div>
       <p class="field-label">${t('ti_lookRows')}</p>
       <div class="league-grid ti-look">
         ${hexField(o, 'headFill')}${hexField(o, 'headColor')}
@@ -5676,7 +5729,7 @@ function pageAdminTable() {
         <button type="button" class="btn btn-outline" data-action="ti-reset">${t('backToDefault')}</button>
       </div>
     </div>
-    <p class="muted ti-size">${tiSizeText(o)}</p>
+    <p class="muted ti-size">${tiSizeText(o)} · ${t('ti_perDiv').replace('{div}', divName(div))}</p>
     ${tiPreview(kind === 'scorers' ? scorerImageHTML(div) : tableImageHTML(div))}`);
 }
 
@@ -5752,7 +5805,16 @@ function freezePastRotation(div) {
   rot.past = rot.past || {};
   for (let g = 1; g < next; g++) if (!rot.past[g]) rot.past[g] = { size: rot.size, numbers: { ...rot.numbers } };
 }
-const rotationAt = (div, g) => { const rot = rotationOf(div); return (rot.past || {})[g] || rot; };
+const rotationAt = (div, g) => {
+  const rot = rotationOf(div), snap = (rot.past || {})[g];
+  return snap ? { ...snap, numbers: currentNames(div, snap.numbers) } : rot;
+};
+// A name saved before a team was renamed only in capitals ("Puebla" → "PUEBLA") reads as today's name.
+function currentNames(div, numbers) {
+  const now = [...(state.teams[div] || []), ...withdrawnIn(div).map(w => w.team)];
+  const fix = nm => (now.includes(nm) ? nm : now.find(x => x.toLowerCase() === String(nm).toLowerCase()) || nm);
+  return Object.fromEntries(Object.entries(numbers).map(([k, v]) => [k, fix(v)]));
+}
 const rotationNumber = (div, team) => +(Object.entries(rotationOf(div).numbers).find(([, n]) => n === team) || [])[0] || 0;
 // Who a team plays on a date by the rotation: a team name, 'rest', or '' when it isn't set up.
 function rotationOpponent(div, date, team) {
@@ -5789,6 +5851,11 @@ function rotGameDate(div, g) {
   return `${t('aboutDate')} ${short(d)}`;
 }
 
+// Some past game on the chart uses other numbers than the ones set now.
+function pastDiffers(div) {
+  const rot = rotationOf(div), key = nums => JSON.stringify(Object.entries(nums).sort(([a], [b]) => a - b));
+  return Object.values(rot.past || {}).some(sn => sn.size !== rot.size || key(currentNames(div, sn.numbers)) !== key(rot.numbers));
+}
 function pageAdminRotation() {
   const div = ui.adminDiv;
   const rot = rotationOf(div);
@@ -5810,7 +5877,6 @@ function pageAdminRotation() {
     <section class="card rot-numbers">
       <div class="box-head"><h2>${t('teamNumbers')}</h2>
         ${rotationSwitch(div, t('rotationAuto'))}
-        <label class="strict-toggle" title="${t('rotPastTooHelp')}"><input type="checkbox" data-change="rot-past-too" ${ui.rotPastToo ? 'checked' : ''}><span class="switch" aria-hidden="true"></span><span>${t('rotPastToo')}</span></label>
         <label class="field inline">${t('howManyNumbers')} <input class="input" type="number" min="2" max="30" value="${rot.size}" data-change="rot-size"></label>
         <span class="field inline">${t('gamesInSeason')} <span class="stepper-cell">
           <button type="button" class="icon-btn" data-action="season-games" data-for="${div}" data-step="-1" aria-label="−1">−</button>
@@ -5823,11 +5889,12 @@ function pageAdminRotation() {
           ${gone.size ? `<optgroup label="${t('withdrewGroup')}">${[...gone].map(tm => `<option value="${esc(tm)}" ${tm === name(n) ? 'selected' : ''}>${esc(tm)} (${t('withdrewTag')})</option>`).join('')}</optgroup>` : ''}
           ${addTeamOpt()}
         </select></label>`).join('')}</div>
-      <p class="note">${t(ui.rotPastToo ? 'rotPastTooOn' : 'rotPastTooOff')}</p>
+      <p class="note">${t('rotPastTooOff')}</p>
       ${missing.length ? `<p class="warn">${t('noNumberYet')}: ${missing.map(esc).join(', ')}</p>` : ''}
       <div class="row-actions">
         ${missing.length ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-fill">${t('fillEmptyNumbers')}</button>` : ''}
         ${rot.size % 2 && Object.keys(rot.numbers).length ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-add-rest">＋ ${t('addTeamRest')}</button>` : ''}
+        ${pastDiffers(div) ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="rot-past-apply" data-ask="rotPastAsk" data-yes="rotPastYes" title="${t('rotPastTooHelp')}">${t('rotPastToo')}</button>` : ''}
         <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="ask" data-confirm="rot-clear">${t('clearNumbers')}</button>
       </div>
     </section>
@@ -5889,14 +5956,12 @@ function syncRotationForfeits() {
   if (changed) save();
 }
 
-// pastToo: the same change is made to the earlier games' numbers as well (only the chart; games already
-// booked or played keep their teams and scores).
+// pastToo: the earlier games on the chart take the same numbers as well, so the whole chart follows them
+// (only the chart; games already booked or played keep their teams and scores).
 function setRotation(div, rot, text, pastToo) {
   freezePastRotation(div);
-  const past = { ...(rotationOf(div).past || {}) };
-  if (pastToo) Object.keys(past).forEach(g => { past[g] = { ...past[g], numbers: pastToo(past[g].numbers, past[g].size) }; });
+  const past = pastToo ? {} : { ...(rotationOf(div).past || {}) };
   rot = { ...rot, past };
-  if (pastToo) text += ` (${t('rotPastToo').toLowerCase()})`;
   // A withdrawn team whose number now goes to another team: the games it still had (from today on) aren't
   // forfeits anymore; the new team plays them. Games already past keep their 3–0.
   const before = rotationOf(div).numbers;
@@ -6347,7 +6412,7 @@ function renameTeam(div, from, to) {
   }))));
   // The new name keeps the team's rotation number, playoff/Copa spots, forfeits and red cards.
   const rot = (state.rotation || {})[div];
-  if (rot) Object.keys(rot.numbers).forEach(k => { if (rot.numbers[k] === from) rot.numbers[k] = to; });
+  if (rot) [rot, ...Object.values(rot.past || {})].forEach(r => Object.keys(r.numbers).forEach(k => { if (r.numbers[k] === from) r.numbers[k] = to; }));
   const swap = l => l.map(x => (x === from ? to : x));
   const po = playoffsOf(div);
   if (po) po.seeds = swap(po.seeds);
@@ -6941,7 +7006,7 @@ const ROUTES = {
   admin: pageAdminDash, 'admin/scores': pageAdminScores, 'admin/scorers': pageAdminScorers,
   'admin/schedule': pageAdminSchedule, 'admin/teams': pageAdminTeams, 'admin/seasons': pageAdminSeasons, 'admin/fields': pageAdminFields,
   'admin/settings': pageAdminSettings, 'admin/history': pageAdminHistory, 'admin/redcards': pageAdminRedCards,
-  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/matchups': pageAdminTeamGames,
+  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/homepage': pageAdminHome, 'admin/matchups': pageAdminTeamGames,
   archive: pageArchive,
 };
 
@@ -7425,6 +7490,18 @@ document.addEventListener('click', e => {
     case 'sheet-export': return sheetExport(el);
     case 'export-card': return exportCard(el);
     case 'ti-kind': ui.tiKind = el.dataset.kind; return render();
+    case 'hp-reset': delete state.homePage; logAction(`${t('homePageNav')}: ${t('hpResetDone')}`); save(); return render();
+    case 'rot-past-apply': {
+      // This division's past games on the chart take today's numbers. Only the chart changes: a withdrawn
+      // team's forfeits for days already gone aren't added because of it.
+      const div = ui.adminDiv, rot = rotationOf(div);
+      const was = new Map(withdrawnIn(div).map(w => [w, new Set((w.left || []).map(m => m.id))]));
+      setRotation(div, { size: rot.size, numbers: { ...rot.numbers } }, t('rotPastDone'), true);
+      let undo = false;
+      was.forEach((ids, w) => { const keep = (w.left || []).filter(m => ids.has(m.id) || m.date >= todayISO()); if (keep.length !== (w.left || []).length) { w.left = keep; undo = true; } });
+      if (undo) { save(); render(); }
+      return toast(t('rotPastDone'));
+    }
     case 'ti-zoom': {
       const z = el.dataset.z, now = ui.tiZoomNow || 1;
       if (z === 'fit') ui.tiZoom = 'fit';
@@ -7433,9 +7510,10 @@ document.addEventListener('click', e => {
       // keep the page where it is (only the preview changes)
       const y = window.scrollY; render(); window.scrollTo(0, y); return;
     }
-    case 'ti-reset': delete state[imgKey(ui.tiKind)]; save(); return render();
-    case 'ti-height-auto': state[imgKey(ui.tiKind)] = { ...imgSet(ui.tiKind), height: 0 }; save(); return render();
-    case 'ti-unit': state[imgKey(ui.tiKind)] = { ...imgSet(ui.tiKind), unit: el.dataset.unit }; save(); return render();
+    // "Back to usual": this division's picture goes back to the built-in look (other divisions keep theirs)
+    case 'ti-reset': setImg(tiKindNow(), { ...imgDefaults(tiKindNow()) }); return render();
+    case 'ti-height-auto': setImg(tiKindNow(), { ...imgSet(tiKindNow()), height: 0 }); return render();
+    case 'ti-unit': setImg(tiKindNow(), { ...imgSet(tiKindNow()), unit: el.dataset.unit }); return render();
     case 'board-to-sheet': ui.sheetDate = ui.boardDate; ui.sheetSection = ui.boardSection; return;
     case 'sheet-to-board': {
       // Open the planner on the sheet's own date (it works a week at a time, so set the week and the day).
@@ -8094,19 +8172,17 @@ document.addEventListener('change', e => {
     const numbers = Object.fromEntries(Object.entries(rot.numbers).filter(([n]) => +n <= size));
     return setRotation(ui.adminDiv, { size, numbers }, `${t('howManyNumbers')} ${size}`);
   }
-  if (e.target.dataset.change === 'rot-past-too') { ui.rotPastToo = e.target.checked; return render(); }
   if (e.target.dataset.change === 'rot-num') {
     const rot = rotationOf(ui.adminDiv), n = e.target.dataset.n, team = e.target.value;
     // A team can only have one number: picking it here swaps it with whoever had this number.
-    const apply = (was, size = rot.size) => {
+    const apply = was => {
       const numbers = { ...was };
-      if (+n > size) return numbers; // that number didn't exist back then
       const had = Object.keys(numbers).find(k => numbers[k] === team && k !== n);
       if (had) { if (numbers[n]) numbers[had] = numbers[n]; else delete numbers[had]; }
       if (team) numbers[n] = team; else delete numbers[n];
       return numbers;
     };
-    return setRotation(ui.adminDiv, { size: rot.size, numbers: apply(rot.numbers) }, team ? `${n} = ${team}` : `${n} = —`, ui.rotPastToo ? apply : null);
+    return setRotation(ui.adminDiv, { size: rot.size, numbers: apply(rot.numbers) }, team ? `${n} = ${team}` : `${n} = —`, );
   }
   if (['po-size', 'po-round', 'po-third'].includes(e.target.dataset.change)) {
     const form = e.target.form;
@@ -8148,6 +8224,24 @@ document.addEventListener('change', e => {
     save(); return render();
   }
   if (e.target.dataset.change === 'ti-date') { ui.tiDate = e.target.value; return render(); }
+  if (e.target.dataset.change === 'hp-text' || e.target.dataset.change === 'hp-link') {
+    const k = e.target.dataset.k, v = e.target.value.trim(), hpData = clone(state.homePage || {});
+    const part = e.target.dataset.change === 'hp-link' ? 'links' : LANG;
+    hpData[part] = { ...(hpData[part] || {}), [k]: v };
+    if (!v) delete hpData[part][k];
+    state.homePage = hpData;
+    save(); return render();
+  }
+  if (e.target.dataset.change === 'ti-pct') {
+    const v = Math.round(+e.target.value);
+    if (v >= 20 && v <= 100) setImg('scores', { ...imgSet('scores'), [e.target.dataset.k]: v });
+    return render();
+  }
+  if (e.target.dataset.change === 'ti-font') {
+    const kind = ['scorers', 'scores'].includes(ui.tiKind) ? ui.tiKind : 'standings';
+    if (IMG_FONTS.includes(e.target.value)) setImg(kind, { ...imgSet(kind), font: e.target.value });
+    return render();
+  }
   if (['ti-set', 'ti-col', 'ti-header', 'ti-autofit', 'ti-count', 'ti-color', 'ti-flag'].includes(e.target.dataset.change)) {
     const kind = ['scorers', 'scores'].includes(ui.tiKind) ? ui.tiKind : 'standings', o = imgSet(kind);
     if (e.target.dataset.change === 'ti-color') {
@@ -8179,8 +8273,7 @@ document.addEventListener('change', e => {
     }
     if (e.target.dataset.change === 'ti-col') o.cols = (kind === 'scorers' ? SCORER_COLS : TABLE_COLS).map(c => c[0]).filter(k => (k === e.target.value ? e.target.checked : o.cols.includes(k)));
     if (e.target.dataset.change === 'ti-header') o.headerRow = e.target.checked;
-    state[imgKey(kind)] = o;
-    save();
+    setImg(kind, o);
     return render();
   }
   if (e.target.dataset.change === 'tour-length') {
