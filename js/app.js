@@ -1070,7 +1070,7 @@ function pageAdminRedCards() {
           <option value="" ${ui.rcDiv ? '' : 'selected'} disabled>${t('chooseOne')}</option>
           ${DIVISIONS.map(d => `<option value="${d.id}" ${d.id === ui.rcDiv ? 'selected' : ''}>${esc(divName(d.id))}</option>`).join('')}</select></label>
         <label class="field">${t('team')}<select class="select" name="team" data-change="rc-team" ${ui.rcDiv ? addTeamAttrs(ui.rcDiv, 'rc-team') : 'disabled'}>${ui.rcDiv ? rcTeamOptions(ui.rcDiv, '') + addTeamOpt() : `<option value="">${t('chooseOne')}</option>`}</select></label>
-        <label class="field">${t('player')}<input class="input" name="player" autocomplete="off" list="rc-players"><datalist id="rc-players"></datalist></label>
+        <label class="field">${t('player')}<input class="input" name="player" autocomplete="off" autocorrect="off" spellcheck="false"></label>
       </div>
       <div class="league-grid">
         <label class="field">${t('rcGame')}<select class="select" name="match" disabled><option value="">${t('chooseOne')}</option></select></label>
@@ -1133,12 +1133,12 @@ function paReportFields(c = {}) {
       <label class="field">${t('division')}<select class="select" name="div" data-change="pa-div">
         <option value="" ${div ? '' : 'selected'} disabled>${t('chooseOne')}</option>
         ${DIVISIONS.filter(d => !isTour(d)).map(d => `<option value="${d.id}" ${d.id === div ? 'selected' : ''}>${esc(divName(d.id))}</option>`).join('')}</select></label>
-      <label class="field">${t('paPlayer')}<input class="input" name="player" autocomplete="off" value="${esc(c.player || '')}"></label>
+      <label class="field">${t('paPlayer')}<input class="input" name="player" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(c.player || '')}"></label>
       <label class="field">${t('paPlayerTeam')}${paTeamSelect('team', div, c.team, false)}</label>
       <label class="field">${t('paReportedBy')}${paTeamSelect('by', div, c.byDiv && c.byDiv !== div ? `${c.by}|${c.byDiv}` : c.by, true)}</label>
     </div>
     <div class="pa-grid">
-      <label class="field">${paLbl('paReporterName', true)}<input class="input" name="reporter" autocomplete="off" value="${esc(c.reporter || '')}"></label>
+      <label class="field">${paLbl('paReporterName', true)}<input class="input" name="reporter" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(c.reporter || '')}"></label>
       ${paRoleFields('reporterRole', c.reporterRole, c.reporterRoleOther)}
     </div>
     <div class="pa-grid">
@@ -1152,9 +1152,9 @@ function paReportFields(c = {}) {
 // Who checked the documents and what they found.
 function paCheckFields(ck = {}) {
   return `<div class="pa-grid">
-      <label class="field">${t('paCheckedBy')}<input class="input" name="name" autocomplete="off" value="${esc(ck.name || '')}"></label>
+      <label class="field">${t('paCheckedBy')}<input class="input" name="checker" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(ck.name || '')}"></label>
       ${paRoleFields('role', PA_ROLES.includes(ck.role) ? ck.role : ck.role ? 'paRoleOther' : '', PA_ROLES.includes(ck.role) ? ck.roleOther : ck.roleOther || ck.role)}
-      <label class="field">${t('paStaff')}<input class="input" name="staff" autocomplete="off" value="${esc(ck.staff || '')}" placeholder="${t('paStaffHint')}"></label>
+      <label class="field">${t('paStaff')}<input class="input" name="staff" autocomplete="off" autocorrect="off" spellcheck="false" value="${esc(ck.staff || '')}" placeholder="${t('paStaffHint')}"></label>
       <label class="field">${t('paDoc')}<select class="select" name="doc" data-change="pa-doc">
         <option value="" ${ck.doc ? '' : 'selected'} disabled>${t('chooseOne')}</option>
         ${PA_DOCS.map(k => `<option value="${k}" ${k === ck.doc ? 'selected' : ''}>${t(k)}</option>`).join('')}</select></label>
@@ -1182,7 +1182,7 @@ function readPaReport(form) {
 }
 function readPaCheck(form) {
   const f = new FormData(form);
-  const ck = { name: (f.get('name') || '').trim(), role: f.get('role') || '', roleOther: (f.get('roleOther') || '').trim(), staff: (f.get('staff') || '').trim(),
+  const ck = { name: (f.get('checker') || '').trim(), role: f.get('role') || '', roleOther: (f.get('roleOther') || '').trim(), staff: (f.get('staff') || '').trim(),
     doc: f.get('doc') || '', docOther: (f.get('docOther') || '').trim(), result: f.get('result') || '', on: f.get('on') || todayISO(), notes: (f.get('checkNotes') || '').trim() };
   if (ck.role !== 'paRoleOther') delete ck.roleOther;
   const missing = [[ck.name, 'paCheckedBy'], [ck.role, 'paRole'], [ck.role !== 'paRoleOther' || ck.roleOther, 'paRoleOtherWhat'], [ck.staff, 'paStaff'],
@@ -8662,7 +8662,6 @@ document.addEventListener('change', e => {
     const team = form.team.value;
     form.match.innerHTML = team ? rcGameOptions(div, team) : `<option value="">${t('chooseOne')}</option>`;
     form.match.disabled = !team;
-    form.querySelector('#rc-players').innerHTML = team ? rcPlayers(div, team).map(n => `<option value="${esc(n)}">`).join('') : '';
     return;
   }
   if (e.target.dataset.change === 'age-like') {

@@ -1737,3 +1737,14 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .pa-lbl .small { font-weight: 500; }
 form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 @media (max-width: 640px) { .pa-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Red Cards / Proof of Age cards: the name keeps its room; the buttons (and "Remove? Yes, remove · Cancel")
+   wrap under it instead of squeezing it */
+.rc-head { flex-wrap: wrap; row-gap: 8px; }
+.rc-head > div:first-child { flex: 1 1 180px; min-width: 0; }
+.rc-tools { flex-wrap: wrap; justify-content: flex-end; }
+.rc-tools .confirm-rm { flex-wrap: wrap; white-space: normal; justify-content: flex-end; }
+/* a card with its Finish or Edit form open takes the whole row, so the form isn't cramped */
+.rc-grid > .pa-card:has(form), .rc-grid > .rc-card:has(form) { grid-column: 1 / -1; }
+.pa-card form .pa-grid .field { min-width: 0; }
+/* Proof of Age: menus, text and date boxes all the same height so rows line up exactly */
+.pa-grid .input, .pa-grid .select { height: 46px; box-sizing: border-box; }
