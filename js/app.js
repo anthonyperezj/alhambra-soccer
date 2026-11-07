@@ -6220,8 +6220,11 @@ function pageAdminRotation() {
     ${roundTrackerHTML(div, next)}
     <div class="rot-grid">${rotRoundBoxes(div, next).map(({ r, c, g }) => {
       // one box per round: its matchups never change; the header says which week plays it (or TBD)
-      const key = `${r}.${c}`, open = ui.rotEditR === key;
-      const at = g ? rotationAt(div, g) : rot, held = !g && (rot.held || []).includes(r);
+      const key = `${r}.${c}`, open = ui.rotEditR === key && ui.rotDraft && ui.rotDraft.key === key;
+      const held = !g && (rot.held || []).includes(r);
+      // while editing, the box shows the changes (not saved until Save)
+      const at = open ? { size: ui.rotDraft.size, numbers: ui.rotDraft.numbers } : g ? rotationAt(div, g) : rot;
+      const dirty = open && rotDraftDirty(div);
       const snap = g && (rot.past || {})[g];
       const chosen = g && Object.entries(rot.rounds || {}).some(([x, v]) => +x === g && v === r);
       const status = g ? `<span class="rot-game-name">${t('game')} ${g}</span><span class="muted">${rotGameDate(div, g)}</span>${g === next ? `<span class="tag">${t('nextGame')}</span>` : g < next ? `<span class="tag rot-played-tag">${t('rotPlayedTag')}</span>` : ''}`
@@ -6232,29 +6235,49 @@ function pageAdminRotation() {
           <span class="rot-head-tools"><span class="rot-round-tag ${chosen ? 'changed' : ''} ${g ? '' : 'tbd'}">${t('roundWord')} ${r}</span>
           <button type="button" class="btn btn-sm btn-outline rot-edit-btn" data-action="rot-round-edit" data-key="${key}">${open ? t('doneBtn') : t('editGame')}</button></span></div>
         ${open ? `<div class="rot-game-edit">
-          <label class="field">${t('rotPlayedInWeek')}<select class="select" data-change="rot-round-week" data-r="${r}">
-            <option value="auto" ${!chosen && !held ? 'selected' : ''}>${t('rotWeekAuto')}</option>
-            <option value="tbd" ${held ? 'selected' : ''}>${t('rotWeekTbd')}</option>
-            ${weeks.map(w => { const other = ui.rotSeason[w]; return `<option value="g:${w}" ${chosen && w === g ? 'selected' : ''}>${t('game')} ${w} · ${esc(rotGameDate(div, w))}${w < next ? ` · ${t('rotPlayedTag')}` : ''}${other && other !== r ? ` · ${t('roundWord')} ${other} ${t('rotNow')}` : ''}</option>`; }).join('')}</select></label>
+          <label class="field">${t('rotPlayedInWeek')}<select class="select" data-change="rot-draft-week">
+            <option value="auto" ${ui.rotDraft.week === 'auto' ? 'selected' : ''}>${t('rotWeekAuto')}</option>
+            <option value="tbd" ${ui.rotDraft.week === 'tbd' ? 'selected' : ''}>${t('rotWeekTbd')}</option>
+            ${weeks.map(w => { const other = ui.rotSeason[w]; return `<option value="g:${w}" ${ui.rotDraft.week === `g:${w}` ? 'selected' : ''}>${t('game')} ${w} · ${esc(rotGameDate(div, w))}${w < next ? ` · ${t('rotPlayedTag')}` : ''}${other && other !== r ? ` · ${t('roundWord')} ${other} ${t('rotNow')}` : ''}</option>`; }).join('')}</select></label>
           <p class="muted small rot-auto-help">${t('rotWeekHelp')}</p>
-          ${g ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-nums-toggle" data-g="${g}" aria-expanded="${ui.rotNumsG === g}">${t('rotEditNumbers')} ${ui.rotNumsG === g ? '▴' : '▾'}</button>
-          ${ui.rotNumsG === g ? `<div class="rot-game-nums">
-            <p class="muted small">${t('rotGameNumsHelp')}</p>
-            <label class="field inline rot-game-size">${t('rotGameSize')} <input class="input" type="number" min="2" max="30" inputmode="numeric" value="${at.size}" data-change="rot-game-size" data-g="${g}"></label>
+          <button type="button" class="btn btn-sm btn-outline" data-action="rot-nums-toggle" data-g="${key}" aria-expanded="${ui.rotNumsG === key}">${t('rotEditNumbers')} ${ui.rotNumsG === key ? '▴' : '▾'}</button>
+          ${ui.rotNumsG === key ? `<div class="rot-game-nums">
+            <p class="muted small">${t('rotDraftNumsHelp')}</p>
+            <label class="field inline rot-game-size">${t('rotGameSize')} <input class="input" type="number" min="2" max="30" inputmode="numeric" value="${at.size}" data-change="rot-draft-size"></label>
             <div class="rot-pick rot-pick-game" style="--rows:${Math.ceil(at.size / 2)}">${Array.from({ length: at.size }, (_, i) => i + 1).map(n => `<label class="rot-slot"><span class="rot-n">${n}</span>
-              <select class="select" data-change="rot-game-num" data-g="${g}" data-n="${n}" aria-label="${t('number')} ${n}">
+              <select class="select" data-change="rot-draft-num" data-n="${n}" aria-label="${t('number')} ${n}">
                 <option value="">${t('chooseTeam')}</option>
                 ${[...new Set([...teams, ...Object.values(at.numbers)])].map(tm => `<option value="${esc(tm)}" ${tm === at.numbers[n] ? 'selected' : ''}>${esc(tm)}${gone.has(tm) ? ` (${t('withdrewTag')})` : ''}</option>`).join('')}
               </select></label>`).join('')}</div>
-            <div class="row-actions">
-              ${snap && pastDiffersAt(div, g) ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-game-now" data-g="${g}">${t('rotUseNowNumbers')}</button>` : ''}
-              ${g < gameColumns(div) ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="rot-nums-forward" data-g="${g}" data-ask="rotForwardQ" data-yes="rotForwardYes">${t('rotForward')}</button>` : ''}
-            </div>
-          </div>` : ''}` : ''}
+          </div>` : ''}
+          <div class="row-actions rot-draft-actions">
+            ${dirty ? `<span class="tag draft-tag">${t('rotNotSaved')}</span>` : ''}
+            <button type="button" class="btn btn-sm btn-outline" data-action="rot-round-edit" data-key="${key}">${t('cancel')}</button>
+            <button type="button" class="btn btn-sm btn-gold" data-action="rot-draft-save" ${dirty ? '' : 'disabled'}>${t('save')}</button>
+          </div>
         </div>` : ''}
         ${rotationRound(at.size, r).map(([a, b]) => `<div class="rot-pair"><span>${cell(a, at, g || next)}</span><i>${t('vs')}</i><span>${cell(b, at, g || next)}</span></div>`).join('')}
       </div>`;
     }).join('')}</div>`);
+}
+// Rotation edits wait in a draft (ui.rotDraft) until Save. Week first; numbers and how many go on the Next
+// game and every game after it (games already played keep theirs).
+function rotDraftStart(div, key) {
+  const box = rotRoundBoxes(div, nextGameNumber(div)).find(b => `${b.r}.${b.c}` === key);
+  if (!box) return null;
+  // the numbers to edit are the ones the Next game and later use (Save only changes those), so an old
+  // played game's numbers (maybe with a team's old name) are never copied forward
+  const rot = rotationOf(div), next = nextGameNumber(div);
+  const at = box.g && box.g >= next ? rotationAt(div, box.g) : { size: rot.size, numbers: currentNames(div, rot.numbers) };
+  const chosen = box.g && Object.entries(rot.rounds || {}).some(([x, v]) => +x === box.g && v === box.r);
+  const week = chosen ? `g:${box.g}` : (!box.g && (rot.held || []).includes(box.r)) ? 'tbd' : 'auto';
+  return { key, r: box.r, g: box.g, week, startWeek: week, size: at.size, numbers: { ...at.numbers }, startSize: at.size, startNumbers: { ...at.numbers } };
+}
+function rotDraftDirty() {
+  const d = ui.rotDraft;
+  if (!d) return false;
+  const key = nums => JSON.stringify(Object.entries(nums).sort(([a], [b]) => a - b));
+  return d.week !== d.startWeek || d.size !== d.startSize || key(d.numbers) !== key(d.startNumbers);
 }
 // The round boxes in order: Round 1, 2, 3… with the week each is played in; when the season goes round
 // again, the rounds played a second time follow.
@@ -7216,9 +7239,12 @@ function sheetFoot(div, team, cols) {
     const sum = players.reduce((n, s) => n + (s.games[g] || 0), 0);
     const m = games[g];
     if (!m && g < games.weeks) return `<td class="no-game" title="${esc(t('noGameThisWeek'))}">${sum || ''}</td>`;
-    const scored = m && played(m) ? (m.home === team ? m.hs : m.as) : null;
+    // every game the team played that day and that counts for it (two games in a day add up)
+    const day = m ? teamGames(div, team).filter(x => x.date === m.date && !x.left) : [];
+    const done = day.filter(played);
+    const scored = done.length ? done.reduce((n, x) => n + (x.home === team ? x.hs : x.as), 0) : null;
     const off = sum > 0 && scored !== null && sum !== scored;
-    const tip = m ? `${fmtDate(m.date)} ${t('vs')} ${m.home === team ? m.away : m.home}${scored !== null ? ` · ${t('scored')} ${scored}` : ''}` : '';
+    const tip = day.map(x => `${fmtDate(x.date)} ${t('vs')} ${x.home === team ? x.away : x.home}${played(x) ? ` · ${t('scored')} ${x.home === team ? x.hs : x.as}` : ''}`).join(' + ');
     return `<td class="${off ? 'mismatch' : ''}" title="${esc(tip)}">${sum || ''}${scored !== null ? `<small>/${scored}</small>` : ''}</td>`;
   });
   return { cells, total: players.reduce((n, s) => n + s.goals, 0) };
@@ -7869,7 +7895,46 @@ document.addEventListener('click', e => {
     case 'sheet-export': return sheetExport(el);
     case 'export-card': return exportCard(el);
     case 'ti-kind': ui.tiKind = el.dataset.kind; return render();
-    case 'rot-round-edit': { ui.rotEditR = ui.rotEditR === el.dataset.key ? null : el.dataset.key; ui.rotNumsG = null; return render(); }
+    case 'rot-round-edit': {
+      const key = el.dataset.key;
+      if (ui.rotEditR === key) { ui.rotEditR = null; ui.rotDraft = null; } // close = nothing saved
+      else { ui.rotEditR = key; ui.rotDraft = rotDraftStart(ui.adminDiv, key); }
+      ui.rotNumsG = null;
+      return render();
+    }
+    case 'rot-draft-save': {
+      const div = ui.adminDiv, d = ui.rotDraft;
+      if (!d || !rotDraftDirty()) return;
+      let rot = rotationOf(div);
+      const notes = [];
+      if (d.week !== d.startWeek) {
+        const rounds = Object.fromEntries(Object.entries(rot.rounds || {}).filter(([, x]) => x !== d.r));
+        const held = new Set(rot.held || []);
+        held.delete(d.r);
+        if (d.week === 'tbd') held.add(d.r);
+        if (d.week.startsWith('g:')) rounds[+d.week.slice(2)] = d.r;
+        rot = { ...rot, rounds, held: [...held].sort((a, b) => a - b) };
+        if (!Object.keys(rot.rounds).length) delete rot.rounds;
+        if (!rot.held.length) delete rot.held;
+        notes.push(`${t('roundWord')} ${d.r} → ${d.week === 'tbd' ? t('rotGameTbd') : d.week === 'auto' ? t('rotAutoShort') : `${t('game')} ${d.week.slice(2)}`}`);
+      }
+      const key = nums => JSON.stringify(Object.entries(nums).sort(([a], [b]) => a - b));
+      if (d.size !== d.startSize || key(d.numbers) !== key(d.startNumbers)) {
+        // the games already played keep the numbers they were played with
+        state.rotation = { ...(state.rotation || {}), [div]: rot };
+        freezePastRotation(div);
+        rot = rotationOf(div);
+        const next = nextGameNumber(div), past = { ...(rot.past || {}) };
+        Object.keys(past).forEach(x => { if (+x >= next) delete past[x]; });
+        rot = { ...rot, size: d.size, numbers: { ...d.numbers }, past };
+        notes.push(t('rotDraftNumsLog').replace('{n}', d.size));
+      }
+      state.rotation = { ...(state.rotation || {}), [div]: rot };
+      logAction(`${t('rotation')} · ${divName(div)}: ${notes.join('; ')}`);
+      ui.rotEditR = null; ui.rotDraft = null; ui.rotNumsG = null;
+      save(); render();
+      return toast(t('saved'));
+    }
     case 'rot-game-edit': { const g = +el.dataset.g; ui.rotEditG = ui.rotEditG === g ? null : g; ui.rotNumsG = null; return render(); }
     case 'rot-nums-forward': {
       // this game's numbers for every game after it too (only the chart; booked or played games keep their teams)
@@ -7894,7 +7959,7 @@ document.addEventListener('click', e => {
       logAction(`${t('rotation')} · ${divName(div)}: ${t('roundWord')} ${r} ${t(holding ? 'rotHeldLog' : 'rotReleasedLog')}`);
       save(); return render();
     }
-    case 'rot-nums-toggle': { const g = +el.dataset.g; ui.rotNumsG = ui.rotNumsG === g ? null : g; return render(); }
+    case 'rot-nums-toggle': { const g = el.dataset.g; ui.rotNumsG = ui.rotNumsG === g ? null : g; return render(); }
     case 'rot-game-now': {
       // this past game on the chart takes today's numbers (only the chart; played games keep their teams)
       const div = ui.adminDiv, g = +el.dataset.g, rot = rotationOf(div);
@@ -8587,6 +8652,22 @@ document.addEventListener('change', e => {
     const rot = rotationOf(ui.adminDiv);
     const numbers = Object.fromEntries(Object.entries(rot.numbers).filter(([n]) => +n <= size));
     return setRotation(ui.adminDiv, { size, numbers }, `${t('howManyNumbers')} ${size}`);
+  }
+  if (['rot-draft-week', 'rot-draft-size', 'rot-draft-num'].includes(e.target.dataset.change) && ui.rotDraft) {
+    const d = ui.rotDraft, ch = e.target.dataset.change;
+    if (ch === 'rot-draft-week') d.week = e.target.value;
+    if (ch === 'rot-draft-size') {
+      d.size = Math.max(2, Math.min(30, parseInt(e.target.value, 10) || d.size));
+      d.numbers = Object.fromEntries(Object.entries(d.numbers).filter(([n]) => +n <= d.size));
+    }
+    if (ch === 'rot-draft-num') {
+      const n = e.target.dataset.n, team = e.target.value, numbers = { ...d.numbers };
+      const had = Object.keys(numbers).find(k => numbers[k] === team && k !== n);
+      if (had) { if (numbers[n]) numbers[had] = numbers[n]; else delete numbers[had]; }
+      if (team) numbers[n] = team; else delete numbers[n];
+      d.numbers = numbers;
+    }
+    return render();
   }
   if (e.target.dataset.change === 'rot-game-size') {
     // how many numbers this one game has (only this game; numbers above the new count come off it)

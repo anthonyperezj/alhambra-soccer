@@ -1812,3 +1812,5 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .rot-game-nums .rot-game-size { justify-content: flex-start; justify-self: start; text-align: left; flex-direction: row; }
 .edit-game .counts-for .day-checks { margin-top: 4px; }
 .edit-game .counts-for small { font-weight: 500; }
+.rot-draft-actions { justify-content: flex-end; align-items: center; margin-top: 4px; }
+.rot-draft-actions .btn:disabled { opacity: .45; }
