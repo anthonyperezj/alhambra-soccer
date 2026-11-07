@@ -4848,7 +4848,8 @@ function forfeitBoxHTML() {
   const divs = DIVISIONS.filter(d => d.group === ui.boardSection && playsOn(d, date));
   if (!divs.length) return '';
   const list = divs.flatMap(d => forfeitStubs(d.id)).filter(m => m.date === date);
-  const regular = state.matches.filter(m => m.forfeitBy && m.date === date && divs.some(d => d.id === m.div)).sort(byDateTime);
+  // forfeits, and forfeits that got a replacement team (they stay listed, so what happened isn't lost)
+  const regular = state.matches.filter(m => (m.forfeitBy || m.filler) && m.date === date && divs.some(d => d.id === m.div)).sort(byDateTime);
   const teamOptions = (div, cur) => `<option value="">${t('chooseTeam')}</option>${[...(state.teams[div] || [])].sort((x, y) => x.localeCompare(y))
     .map(n => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join('')}`;
   const goneOptions = (div, cur) => withdrawnIn(div).map(w => `<option ${w.team === cur ? 'selected' : ''}>${esc(w.team)}</option>`).join('');
@@ -4890,6 +4891,20 @@ function forfeitBoxHTML() {
         </div>
         ${ui.fillerFor === m.id ? fillerFormHTML(m, other) : ''}`;
       }, m => {
+        if (m.filler) {
+          // a forfeit with a replacement team playing instead
+          const stays = m.home === m.fillerTeam ? m.away : m.home;
+          return `<div class="forfeit-row replaced-row" data-mid="${m.id}">
+            <span class="tag filler-tag">${t('fillerTag')}</span>
+            <b>${t('game')} ${gameNumber(m.div, m.date)}</b>
+            <span><b>${esc(stays)}</b> ${t('vs')} <b>${esc(m.fillerTeam)}</b> <span class="muted">· ${t('insteadOf')} ${esc(m.filler.gone)} (${t('forfeitedWord')}) · ${esc(m.time)}${m.field ? ` · ${esc(FIELDS[m.field] || m.field)}` : ''}</span></span>
+            <span class="replaced-actions">
+              <button type="button" class="link-btn replacement-btn" data-action="filler-open" data-mid="${m.id}" aria-expanded="${ui.fillerFor === m.id}">${t('editWord')}</button>
+              <button type="button" class="link-btn replacement-btn" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>
+            </span>
+          </div>
+          ${ui.fillerFor === m.id ? fillerFormHTML(m, stays) : ''}`;
+        }
         const winner = m.forfeitBy === m.home ? m.away : m.home;
         return `<div class="forfeit-row" data-mid="${m.id}">
           <span class="tag forfeit">${t(doubleForfeit(m) ? 'doubleForfeit' : 'forfeit')}</span>
@@ -4917,26 +4932,41 @@ function forfeitGroups(divs, stubs, regular, stubRow, regularRow) {
 
 // Play a guest team instead of the forfeit: its name, and the field and time it plays on.
 function fillerFormHTML(m, team) {
-  const day = boardDay(ui.boardDate)[ui.boardSection] || {};
+  // Editing a replacement game: the form starts with its team, field and time.
+  const edit = !!m.filler;
   // The division's usual fields first; "Other field…" opens the rest, like Add a game.
   const fields = divisionFields(m.div).filter(f => FIELDS[f] && isOpenField(f));
+  if (edit && m.field && !fields.includes(m.field)) fields.push(m.field);
+  const field = edit && m.field ? m.field : fields[0];
+  const times = edit ? editSlots(m, field) : openSlots(field);
+  const cur = edit ? toMin(m.time) : null;
+  const known = edit && replacementNames(m).includes(m.fillerTeam);
   return `<form class="forfeit-row filler-form" data-form="filler" data-mid="${m.id}" data-league="${m.div}">
     <span class="muted">${esc(team)} ${t('vs')}</span>
-    ${replacementPickHTML(m)}
-    <select class="select" name="field" data-change="filler-field" aria-label="${t('field')}">${fields.map(f => `<option value="${f}">${esc(FIELDS[f])}</option>`).join('')}${
+    ${replacementSelectHTML(m, false, known ? m.fillerTeam : '')}
+    <input class="input" name="name" placeholder="${t('fillerName')}" autocomplete="off" ${edit ? (known ? 'hidden' : `value="${esc(m.fillerTeam)}"`) : ''}>
+    <select class="select" name="field" data-change="filler-field" aria-label="${t('field')}">${fields.map(f => `<option value="${f}" ${f === field ? 'selected' : ''}>${esc(FIELDS[f])}</option>`).join('')}${
       fields.length < openFields().length ? `<option value="__other">${t('otherField')}</option>` : ''}</select>
-    <select class="select" name="time" data-change="filler-time" aria-label="${t('time')}">${fillerTimeOptions(openSlots(fields[0]))}</select>
-    <input class="input" type="time" name="customTime" aria-label="${t('time')}" ${openSlots(fields[0]).length ? 'hidden' : ''}>
-    <button class="btn btn-sm btn-gold" type="submit">${t('fillerBook')}</button>
+    <select class="select" name="time" data-change="filler-time" aria-label="${t('time')}">${fillerTimeOptions(times, cur)}</select>
+    <input class="input" type="time" name="customTime" aria-label="${t('time')}" ${times.length ? 'hidden' : ''}>
+    <button class="btn btn-sm btn-gold" type="submit">${t(edit ? 'save' : 'fillerBook')}</button>
+    ${edit ? `<button class="btn btn-sm btn-outline" type="button" data-action="filler-open" data-mid="${m.id}">${t('cancel')}</button>` : ''}
     <p class="warn" hidden></p>
     <p class="note">${t('fillerHelp')}</p>
   </form>`;
 }
+// Names the replacement menu lists for a game (to know whether a replacement typed by hand is in it).
+const replacementNames = m => [...hiddenTeams(m.div).map(h => h.team), ...(state.teams[m.div] || []).filter(n => ![m.home, m.away].includes(n) || n === m.fillerTeam)];
+// Open times on a field, plus the replacement game's own time when it's on that field.
+const editSlots = (m, field) => {
+  const own = m.field === field ? [toMin(m.time)] : [];
+  return [...new Set([...openSlots(field), ...own])].sort((a, b) => a - b);
+};
 // Who plays as the replacement: type a new name, a team used as a replacement before, or any league team.
 // Whoever it is, only our team's result counts; the replacement team never goes in the standings.
 // The list starts with this division's teams; "Show other teams…" opens every division's.
 function replacementSelectHTML(m, all = false, cur = '') {
-  const busy = [m.home, m.away];
+  const busy = [m.home, m.away].filter(n => !(m.filler && n === m.fillerTeam));
   const used = hiddenTeams(m.div).map(h => h.team);
   const opt = n => `<option value="${esc(n)}" ${n === cur ? 'selected' : ''}>${esc(n)}</option>`;
   const divs = DIVISIONS.filter(d => (state.teams[d.id] || []).length && (all || d.id === m.div));
@@ -4966,11 +4996,13 @@ function hiddenTeams(div) {
 
 // Times still open on a field that day (from the schedule planner), so a replacement can't double-book it.
 const openSlots = field => ((boardDay(ui.boardDate)[ui.boardSection] || {})[field] || []).filter(r => !rowTaken(ui.boardDate, r)).map(r => r.t);
-const fillerTimeOptions = times => `${times.map(x => `<option value="${x}">${fromMin(x)}</option>`).join('')}<option value="__other">${t('otherTime')}</option>`;
+const fillerTimeOptions = (times, cur = null) => `${times.map(x => `<option value="${x}" ${x === cur ? 'selected' : ''}>${fromMin(x)}</option>`).join('')}<option value="__other">${t('otherTime')}</option>`;
 
 function bookFiller(form) {
   const id = +form.dataset.mid;
   const f = findForfeit(id);
+  const ed = !f && state.matches.find(x => x.id === id && x.filler);
+  if (ed) return editFiller(form, ed);
   const reg = !f && state.matches.find(x => x.id === id && x.forfeitBy);
   if (!f && !reg) return;
   const name = form.pick.value === '__new' ? form.name.value.trim() : form.pick.value;
@@ -5014,6 +5046,41 @@ function bookFiller(form) {
   ui.fillerFor = null;
   touch(m.div);
   logAction(`${t('fillerBooked')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${team} ${t('vs')} ${name} (${t('insteadOf')} ${loser})`);
+  save(); render();
+}
+
+// Change a replacement game's team, field or time (the forfeit it replaced stays saved for Back to 3–0).
+function editFiller(form, m) {
+  const name = form.pick.value === '__new' ? form.name.value.trim() : form.pick.value;
+  if (!name) return form.name.focus();
+  const team = m.home === m.fillerTeam ? m.away : m.home;
+  const warn = form.querySelector('.warn');
+  const fail = msg => { warn.textContent = msg; warn.hidden = false; };
+  if (name === team) return fail(t('fillerSameTeam'));
+  let start;
+  if (form.time.value === '__other') {
+    if (!form.customTime.value) return fail(t('pickTime'));
+    const [hh, mm] = form.customTime.value.split(':').map(Number);
+    start = hh * 60 + mm;
+  } else start = +form.time.value;
+  const field = form.field.value, div = m.div, date = m.date, sec = groupOf(div);
+  const len = durationFor(date, sec, field, div);
+  const clash = findConflicts({ date, start, field, div, teams: [team], ignore: m.id });
+  const busyRow = ((boardDay(date)[sec] || {})[field] || []).find(r => !r.mid && rowTaken(date, r)
+    && start < r.t + durationFor(date, sec, field, rowDiv(r)) && r.t < start + len);
+  if (clash.length) {
+    const c = clash[0].m;
+    return fail(`${t(clash[0].why === 'field' ? 'conflictField' : 'conflictTeam')} ${divName(c.div)} · ${c.home} ${t('vs')} ${c.away} · ${c.time}`);
+  }
+  if (busyRow) return fail(`${t('conflictField')} ${t('friendly')} · ${fromMin(busyRow.t)}`);
+  const before = `${m.fillerTeam} · ${m.time}`;
+  // The planner's slot lets go of the game; the planner puts it back in its (new) place.
+  Object.values(boardDay(date)[sec] || {}).forEach(rows => rows.forEach(r => { if (r.mid === m.id) Object.assign(r, { mid: null, home: '', away: '' }); }));
+  if (m.home === m.fillerTeam) m.home = name; else m.away = name;
+  Object.assign(m, { fillerTeam: name, time: fromMin(start), field });
+  ui.fillerFor = null;
+  touch(m.div);
+  logAction(`${t('fillerEdited')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${team} ${t('vs')} ${name} · ${m.time} (${t('fillerWas')} ${before})`);
   save(); render();
 }
 
@@ -8753,8 +8820,9 @@ document.addEventListener('change', e => {
       sel.value = rest[0];
     }
     // The time list follows the field: only its open slots, plus "Other time…".
-    const times = openSlots(sel.value);
-    form.time.innerHTML = fillerTimeOptions(times);
+    const ed = state.matches.find(x => x.id === +form.dataset.mid && x.filler);
+    const times = ed ? editSlots(ed, sel.value) : openSlots(sel.value);
+    form.time.innerHTML = fillerTimeOptions(times, ed && ed.field === sel.value ? toMin(ed.time) : null);
     form.customTime.hidden = times.length > 0;
     return;
   }

@@ -1814,3 +1814,6 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .edit-game .counts-for small { font-weight: 500; }
 .rot-draft-actions { justify-content: flex-end; align-items: center; margin-top: 4px; }
 .rot-draft-actions .btn:disabled { opacity: .45; }
+/* replacement row in Forfeits this day: Edit and Back to 3–0 sit together */
+.forfeit-row .replaced-actions { flex-basis: 100%; display: flex; gap: 20px; flex-wrap: wrap; padding-top: 6px; border-top: 1px dashed var(--line); margin-top: 2px; }
+.forfeit-row .replaced-actions .replacement-btn { flex-basis: auto; border-top: 0; padding: 0; margin: 0; }
