@@ -1748,3 +1748,62 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .pa-card form .pa-grid .field { min-width: 0; }
 /* Proof of Age: menus, text and date boxes all the same height so rows line up exactly */
 .pa-grid .input, .pa-grid .select { height: 46px; box-sizing: border-box; }
+/* Game rotation: each game's round and Edit */
+.rot-head { flex-wrap: wrap; }
+.rot-round-tag { font-size: 12px; font-weight: 700; color: var(--muted); background: #f3f0e6; border-radius: 999px; padding: 2px 8px; margin-left: auto; }
+.rot-round-tag.changed { color: #7d5a00; background: #fff4d6; border: 1px solid #f0d78a; }
+.rot-edit-btn { padding: 3px 10px; }
+.rot-game.moved { box-shadow: inset 0 0 0 2px #f0d78a; }
+.rot-game-edit { display: grid; gap: 8px; padding: 10px; margin: 6px 0 8px; background: #faf8f2; border-radius: 10px; }
+.rot-game-edit .muted.small { margin: 0; font-size: 12.5px; }
+.rot-head-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.rot-head-tools .rot-round-tag { margin-left: 0; }
+/* Team numbers go down the columns: 1–4 on the left, 5–8 on the right (one column on phones) */
+@media (min-width: 641px) {
+  .rot-pick { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(var(--rows), auto); grid-auto-flow: column; }
+}
+.tag.rot-played-tag { background: #e6f4ea; color: #1d6b35; border: 1px solid #b7dfc2; }
+.rot-game-edit .rot-repeat { margin: 0; font-size: 13px; }
+/* Game rotation: rounds this season */
+.rot-tracker { margin: 14px 0; }
+.rot-tracker h2 { margin: 0 0 10px; font-size: 18px; }
+.rot-chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rot-chip { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid; font-size: 14px; }
+.rot-chip small { font-size: 12px; font-weight: 600; }
+.rot-chip.played { background: #e6f4ea; border-color: #b7dfc2; color: #1d6b35; }
+.rot-chip.coming { background: #fff8e6; border-color: #f0d78a; color: #7d5a00; }
+.rot-chip.not-played { background: #fdecea; border-color: #f3c1bb; color: #a12a1e; }
+/* Game rotation: a box being edited takes the whole row; its editor never runs over the box */
+.rot-grid > .rot-game.editing { grid-column: 1 / -1; }
+.rot-game { min-width: 0; }
+.rot-game-edit { grid-template-columns: minmax(0, 1fr); }
+.rot-game-edit .field { min-width: 0; }
+.rot-game-edit .select { width: 100%; max-width: 420px; min-width: 0; text-overflow: ellipsis; }
+.rot-game-edit .btn { justify-self: start; max-width: 100%; white-space: normal; text-align: left; }
+.rot-game-edit .muted.small, .rot-game-edit .warn { margin: 0; font-size: 12.5px; line-height: 1.35; }
+.rot-head .muted { white-space: nowrap; }
+.rot-game-nums { display: grid; gap: 8px; padding-top: 4px; border-top: 1px dashed var(--line); }
+.rot-pick-game { margin: 0; }
+.rot-round-tag.tbd { color: #a12a1e; background: #fdecea; border: 1px solid #f3c1bb; }
+.rot-tbd-note { margin: 6px 0 0; font-size: 13px; }
+.rot-tbd-pairs { opacity: .6; }
+.rot-chip.held { background: #f3f0e6; border-color: #d8d1bd; color: #5b5444; border-style: dashed; }
+.rot-chip .link-btn { align-self: flex-start; margin-top: 2px; font-size: 12px; }
+.rot-game.tbd-box { border-style: dashed; }
+.rot-game.tbd-box .rot-game-name { color: #a12a1e; }
+/* A round held as TBD (skipped for now): a red outline so it stands out */
+.rot-grid > .rot-game.tbd-box { border: 2px solid #c62828; box-shadow: 0 0 0 3px rgba(198,40,40,.12); }
+.rot-game.tbd-box .rot-round-tag.tbd { color: #fff; background: #c62828; border-color: #c62828; }
+/* Rotation matchups: each side keeps to its half of the box; a single long word (FRANCISQUENSE) wraps
+   inside instead of running out over the border */
+.rot-pair { grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.rot-pair > span { min-width: 0; }
+.rot-pair > span > span:last-child { min-width: 0; overflow-wrap: break-word; word-break: normal; }
+.rot-pair .rot-n { flex: none; }
+/* Register page division cards: every card the same way: name, then years/description, then the button
+   under them (no button squeezed beside a long name) */
+.reg-card { grid-template-columns: minmax(0, 1fr); align-content: start; gap: 4px; }
+.reg-card .reg-btns, .reg-card .reg-soon, .reg-card .btn { grid-column: 1; grid-row: auto; }
+.reg-card .reg-btns { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
+.reg-card .reg-soon { margin-top: 6px; }
+.reg-card .reg-name { overflow-wrap: break-word; }

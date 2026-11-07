@@ -3761,7 +3761,7 @@ function rotationPlan(div, team, wanted) {
     const busy = new Set(teamGames(div, team).filter(m => !m.left).map(m => gameNumber(div, m.date)));
     for (let g = Math.max(1, nextGameNumber(div)); g <= gameColumns(div); g++) {
       if (busy.has(g)) continue;
-      const pair = rotationRound(rot.size, g).find(x => x.includes(me));
+      const pair = gameRound(div, g) ? rotationRound(rot.size, gameRound(div, g)).find(x => x.includes(me)) : null;
       const o = pair && (pair[0] === me ? pair[1] : pair[0]);
       const name = o && o <= rot.size ? rot.numbers[o] : '';
       if (name && wanted.includes(name) && !out.some(x => x.team === name)) out.push({ team: name, game: g });
@@ -5734,7 +5734,7 @@ const TABLE_COLS = [['rank', '#'], ['logo', 'logoCol'], ['p', 'played'], ['w', '
 // in the titles row's color (like a row with 0.3 pt text in a spreadsheet).
 const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, bottomHeight: 4, font: 'Inter', bold: false };
 // Fonts the pictures can use (loaded in index.html, or on every computer).
-const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Bebas Neue', 'Arial', 'Georgia'];
+const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Rajdhani', 'Bebas Neue', 'Arial', 'Georgia'];
 const imgFontCSS = o => `font-family:'${IMG_FONTS.includes(o.font) ? o.font : 'Inter'}', system-ui, sans-serif;`;
 // headHeight 0 = the titles row sizes itself; spaceBelow = empty space under the table inside the picture.
 const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, headHeight: 0, spaceBelow: 0, formCount: 5, ...IMG_LOOK, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
@@ -6039,6 +6039,40 @@ function rotationRound(size, game) {
   const bottom = c.slice(k / 2 - 1).reverse();
   return top.map((n, i) => [n, bottom[i]]);
 }
+// How many different rounds a rotation has (an odd number of teams adds a rest spot), and which round each
+// game uses: normally Game N plays Round N (repeating), but a game can be set to another round
+// (state.rotation[div].rounds[g]), like picking rounds out of order when scheduling.
+const roundCount = size => Math.max(1, (size % 2 ? size + 1 : size) - 1);
+const usualRound = (size, g) => ((g - 1) % roundCount(size)) + 1;
+// Every game week's round: a week with a round picked keeps it; the others take the next round not used
+// yet, so picking Round 11 for Game 4 moves the rounds after it along (Game 5 → Round 4…). Once every round
+// has been used, it starts over.
+// A week whose next round is already picked by a later week (in the same pass through the rounds) shows
+// "Round TBD" (0) until a round is picked for it, instead of playing that round twice.
+// Rounds held for later (state.rotation[div].held): automatic weeks skip them; they stay "TBD" until a week
+// is given that round.
+function seasonRounds(div, rounds = rotationOf(div).rounds || {}) {
+  const out = [0], used = new Set(), n = gameColumns(div);
+  const picked = new Set(Object.values(rounds));
+  const held = new Set((rotationOf(div).held || []).filter(r => !picked.has(r)));
+  for (let g = 1; g <= n; g++) {
+    const count = roundCount(rotationAt(div, g).size);
+    if (used.size + [...held].filter(x => !used.has(x)).length >= count) used.clear();
+    let r = rounds[g] ? ((rounds[g] - 1) % count) + 1 : 0;
+    if (!r) {
+      const free = x => !used.has(x) && !held.has(x);
+      r = 1; while (!free(r) && r <= count) r++;
+      if (r > count) { used.clear(); r = 1; while (held.has(r) && r <= count) r++; if (r > count) { out[g] = 0; continue; } }
+      // picked by a later week before the rounds start over?
+      const left = count - used.size;
+      const later = Object.keys(rounds).map(Number).filter(x => x > g && x <= g + left);
+      if (later.some(x => ((rounds[x] - 1) % count) + 1 === r)) { out[g] = 0; continue; }
+    }
+    used.add(r); out[g] = r;
+  }
+  return out;
+}
+const gameRound = (div, g) => { const sr = seasonRounds(div); return g < sr.length ? sr[g] : g; };
 // A division's rotation: how many numbers, and which team has each number.
 const rotationOf = div => (state.rotation || {})[div] || { size: (state.teams[div] || []).length, numbers: {} };
 // Changing the rotation (a team added, a number changed, more numbers) only counts from the coming game day
@@ -6066,7 +6100,9 @@ function rotationOpponent(div, date, team) {
   const g = gameNumber(div, date), rot = rotationAt(div, g);
   const me = +(Object.entries(rot.numbers).find(([, n]) => n === team) || [])[0] || 0;
   if (!me) return '';
-  const pair = rotationRound(rot.size, g).find(p => p.includes(me));
+  const rd = gameRound(div, g);
+  if (!rd) return ''; // Round TBD: no suggestion until a round is picked
+  const pair = rotationRound(rot.size, rd).find(p => p.includes(me));
   if (!pair) return '';
   const other = pair[0] === me ? pair[1] : pair[0];
   return other > rot.size ? 'rest' : rot.numbers[other] || '';
@@ -6092,10 +6128,32 @@ function rotGameDate(div, g) {
   if (g <= days.length) return short(days[g - 1]);
   // Count forward a week at a time from the last game day, skipping days off.
   let d = days[days.length - 1] || addDays(lastPlayDay(div), -7);
-  for (let k = days.length; k < g; k++) { d = addDays(d, 7); while (offFor(div, d)) d = addDays(d, 7); }
+  // an expected date is never one already gone by (a week with no games doesn't count as a game)
+  const today = todayISO();
+  for (let k = days.length; k < g; k++) { d = addDays(d, 7); while (d < today || offFor(div, d)) d = addDays(d, 7); }
   return `${t('aboutDate')} ${short(d)}`;
 }
 
+// Every round of the rotation and where it falls this season: played (green), coming up (gold) or not
+// played at all (red).
+function roundTrackerHTML(div, next) {
+  const sr = seasonRounds(div), count = roundCount(rotationOf(div).size);
+  const games = r => sr.map((x, g) => (x === r && g ? g : 0)).filter(Boolean);
+  return `<section class="card rot-tracker"><h2>${t('rotRoundsTitle')}</h2><div class="rot-chips">${Array.from({ length: count }, (_, i) => i + 1).map(r => {
+    const gs = games(r), played = gs.filter(g => g < next), coming = gs.filter(g => g >= next);
+    const isHeld = (rotationOf(div).held || []).includes(r) && !coming.length;
+    const cls = played.length ? 'played' : coming.length ? 'coming' : isHeld ? 'held' : 'not-played';
+    const label = played.length ? `${t('rotPlayedTag')} · ${played.map(g => `${t('game')} ${g}`).join(', ')}` : coming.length ? `${t('game')} ${coming[0]}` : isHeld ? t('rotHeldTag') : t('rotNotPlayed');
+    const canHold = !played.length;
+    return `<span class="rot-chip ${cls}"><b>${t('roundWord')} ${r}</b><small>${esc(label)}${played.length && coming.length ? ` · ${t('rotAgainIn')} ${t('game')} ${coming[0]}` : ''}</small>
+      ${canHold ? `<button type="button" class="link-btn small" data-action="rot-hold" data-r="${r}">${t(isHeld ? 'rotRelease' : 'rotHold')}</button>` : ''}</span>`;
+  }).join('')}</div></section>`;
+}
+// One past game on the chart uses other numbers than the ones set now.
+function pastDiffersAt(div, g) {
+  const rot = rotationOf(div), sn = (rot.past || {})[g], key = nums => JSON.stringify(Object.entries(nums).sort(([a], [b]) => a - b));
+  return !!sn && (sn.size !== rot.size || key(currentNames(div, sn.numbers)) !== key(rot.numbers));
+}
 // Some past game on the chart uses other numbers than the ones set now.
 function pastDiffers(div) {
   const rot = rotationOf(div), key = nums => JSON.stringify(Object.entries(nums).sort(([a], [b]) => a - b));
@@ -6127,7 +6185,7 @@ function pageAdminRotation() {
           <button type="button" class="icon-btn" data-action="season-games" data-for="${div}" data-step="-1" aria-label="−1">−</button>
           <b>${gameColumns(div)}</b>
           <button type="button" class="icon-btn" data-action="season-games" data-for="${div}" data-step="1" aria-label="+1">+</button></span></span></div>
-      <div class="rot-pick">${Array.from({ length: rot.size }, (_, i) => i + 1).map(n => `<label class="rot-slot"><span class="rot-n">${n}</span>
+      <div class="rot-pick" style="--rows:${Math.ceil(rot.size / 2)}">${Array.from({ length: rot.size }, (_, i) => i + 1).map(n => `<label class="rot-slot"><span class="rot-n">${n}</span>
         <select class="select" data-change="rot-num" data-n="${n}" ${addTeamAttrs(div, `rot|${n}`)} aria-label="${t('number')} ${n}">
           <option value="">${t('chooseTeam')}</option>
           ${teams.filter(tm => !gone.has(tm)).map(tm => `<option ${tm === name(n) ? 'selected' : ''}>${esc(tm)}</option>`).join('')}
@@ -6139,14 +6197,59 @@ function pageAdminRotation() {
       <div class="row-actions">
         ${missing.length ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-fill">${t('fillEmptyNumbers')}</button>` : ''}
         ${rot.size % 2 && Object.keys(rot.numbers).length ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-add-rest">＋ ${t('addTeamRest')}</button>` : ''}
-        ${pastDiffers(div) ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="rot-past-apply" data-ask="rotPastAsk" data-yes="rotPastYes" title="${t('rotPastTooHelp')}">${t('rotPastToo')}</button>` : ''}
         <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="ask" data-confirm="rot-clear">${t('clearNumbers')}</button>
       </div>
     </section>
-    <div class="rot-grid">${Array.from({ length: gameColumns(div) }, (_, i) => i + 1).map(g => `<div class="rot-game ${g === next ? 'next' : ''}">
-        <div class="rot-head"><b>#${g}</b><span class="rot-game-name">${t('game')} ${g}</span><span class="muted">${rotGameDate(div, g)}</span>${g === next ? `<span class="tag">${t('nextGame')}</span>` : ''}</div>
-        ${(at => rotationRound(at.size, g).map(([a, b]) => `<div class="rot-pair"><span>${cell(a, at, g)}</span><i>${t('vs')}</i><span>${cell(b, at, g)}</span></div>`).join(''))(rotationAt(div, g))}
-      </div>`).join('')}</div>`);
+    ${(() => { const sr = seasonRounds(div); ui.rotSeason = sr; ui.rotPlayed = {}; for (let g = 1; g < next; g++) (ui.rotPlayed[sr[g]] = ui.rotPlayed[sr[g]] || []).push(g); return ''; })()}
+    ${roundTrackerHTML(div, next)}
+    <div class="rot-grid">${rotRoundBoxes(div, next).map(({ r, c, g }) => {
+      // one box per round: its matchups never change; the header says which week plays it (or TBD)
+      const key = `${r}.${c}`, open = ui.rotEditR === key;
+      const at = g ? rotationAt(div, g) : rot, held = !g && (rot.held || []).includes(r);
+      const snap = g && (rot.past || {})[g];
+      const chosen = g && Object.entries(rot.rounds || {}).some(([x, v]) => +x === g && v === r);
+      const status = g ? `<span class="rot-game-name">${t('game')} ${g}</span><span class="muted">${rotGameDate(div, g)}</span>${g === next ? `<span class="tag">${t('nextGame')}</span>` : g < next ? `<span class="tag rot-played-tag">${t('rotPlayedTag')}</span>` : ''}`
+        : `<span class="rot-game-name">${t('rotGameTbd')}</span><span class="muted">${t('rotDateTbd')}</span>`;
+      const weeks = Array.from({ length: gameColumns(div) }, (_, i) => i + 1);
+      return `<div class="rot-game ${g === next ? 'next' : ''} ${chosen ? 'moved' : ''} ${!g ? 'tbd-box' : ''} ${open ? 'editing' : ''}">
+        <div class="rot-head"><b>#${r}</b>${status}
+          <span class="rot-head-tools"><span class="rot-round-tag ${chosen ? 'changed' : ''} ${g ? '' : 'tbd'}">${t('roundWord')} ${r}</span>
+          <button type="button" class="btn btn-sm btn-outline rot-edit-btn" data-action="rot-round-edit" data-key="${key}">${open ? t('doneBtn') : t('editGame')}</button></span></div>
+        ${open ? `<div class="rot-game-edit">
+          <label class="field">${t('rotPlayedInWeek')}<select class="select" data-change="rot-round-week" data-r="${r}">
+            <option value="auto" ${!chosen && !held ? 'selected' : ''}>${t('rotWeekAuto')}</option>
+            <option value="tbd" ${held ? 'selected' : ''}>${t('rotWeekTbd')}</option>
+            ${weeks.map(w => { const other = ui.rotSeason[w]; return `<option value="g:${w}" ${chosen && w === g ? 'selected' : ''}>${t('game')} ${w} · ${esc(rotGameDate(div, w))}${w < next ? ` · ${t('rotPlayedTag')}` : ''}${other && other !== r ? ` · ${t('roundWord')} ${other} ${t('rotNow')}` : ''}</option>`; }).join('')}</select></label>
+          <p class="muted small rot-auto-help">${t('rotWeekHelp')}</p>
+          ${g ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-nums-toggle" data-g="${g}" aria-expanded="${ui.rotNumsG === g}">${t('rotEditNumbers')} ${ui.rotNumsG === g ? '▴' : '▾'}</button>
+          ${ui.rotNumsG === g ? `<div class="rot-game-nums">
+            <p class="muted small">${t('rotGameNumsHelp')}</p>
+            <div class="rot-pick rot-pick-game" style="--rows:${Math.ceil(at.size / 2)}">${Array.from({ length: at.size }, (_, i) => i + 1).map(n => `<label class="rot-slot"><span class="rot-n">${n}</span>
+              <select class="select" data-change="rot-game-num" data-g="${g}" data-n="${n}" aria-label="${t('number')} ${n}">
+                <option value="">${t('chooseTeam')}</option>
+                ${[...new Set([...teams, ...Object.values(at.numbers)])].map(tm => `<option value="${esc(tm)}" ${tm === at.numbers[n] ? 'selected' : ''}>${esc(tm)}${gone.has(tm) ? ` (${t('withdrewTag')})` : ''}</option>`).join('')}
+              </select></label>`).join('')}</div>
+            <div class="row-actions">
+              ${snap && pastDiffersAt(div, g) ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-game-now" data-g="${g}">${t('rotUseNowNumbers')}</button>` : ''}
+              ${g < gameColumns(div) ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="rot-nums-forward" data-g="${g}" data-ask="rotForwardQ" data-yes="rotForwardYes">${t('rotForward')}</button>` : ''}
+            </div>
+          </div>` : ''}` : ''}
+        </div>` : ''}
+        ${rotationRound(at.size, r).map(([a, b]) => `<div class="rot-pair"><span>${cell(a, at, g || next)}</span><i>${t('vs')}</i><span>${cell(b, at, g || next)}</span></div>`).join('')}
+      </div>`;
+    }).join('')}</div>`);
+}
+// The round boxes in order: Round 1, 2, 3… with the week each is played in; when the season goes round
+// again, the rounds played a second time follow.
+function rotRoundBoxes(div, next) {
+  const sr = ui.rotSeason || seasonRounds(div), count = roundCount(rotationOf(div).size);
+  const byRound = {};
+  for (let g = 1; g < sr.length; g++) if (sr[g]) (byRound[sr[g]] = byRound[sr[g]] || []).push(g);
+  const out = [];
+  for (let r = 1; r <= count; r++) out.push({ r, c: 0, g: (byRound[r] || [])[0] || 0 });
+  for (let c = 1; Object.values(byRound).some(l => l.length > c); c++)
+    for (let r = 1; r <= count; r++) if ((byRound[r] || [])[c]) out.push({ r, c, g: byRound[r][c] });
+  return out;
 }
 
 // After a team is picked on the planner, put in its opponent from the rotation (Admin → Game rotation).
@@ -6188,7 +6291,9 @@ function syncRotationForfeits() {
       const g = gameNumber(div, date), at = rotationAt(div, g);
       const me = +(Object.entries(at.numbers).find(([, n]) => n === w.team) || [])[0] || 0;
       if (!me) return;
-      const pair = rotationRound(at.size, g).find(p => p.includes(me));
+      const rd = gameRound(div, g);
+      if (!rd) return;
+      const pair = rotationRound(at.size, rd).find(p => p.includes(me));
       const otherN = pair && (pair[0] === me ? pair[1] : pair[0]);
       const other = otherN && otherN <= at.size ? at.numbers[otherN] : '';
       if (!other || withdrawnIn(div).some(x => x.team === other)) return;
@@ -6206,7 +6311,8 @@ function syncRotationForfeits() {
 function setRotation(div, rot, text, pastToo) {
   freezePastRotation(div);
   const past = pastToo ? {} : { ...(rotationOf(div).past || {}) };
-  rot = { ...rot, past };
+  rot = { rounds: rotationOf(div).rounds, ...rot, past };
+  if (!rot.rounds) delete rot.rounds;
   // A withdrawn team whose number now goes to another team: the games it still had (from today on) aren't
   // forfeits anymore; the new team plays them. Games already past keep their 3–0.
   const before = rotationOf(div).numbers;
@@ -7746,6 +7852,40 @@ document.addEventListener('click', e => {
     case 'sheet-export': return sheetExport(el);
     case 'export-card': return exportCard(el);
     case 'ti-kind': ui.tiKind = el.dataset.kind; return render();
+    case 'rot-round-edit': { ui.rotEditR = ui.rotEditR === el.dataset.key ? null : el.dataset.key; ui.rotNumsG = null; return render(); }
+    case 'rot-game-edit': { const g = +el.dataset.g; ui.rotEditG = ui.rotEditG === g ? null : g; ui.rotNumsG = null; return render(); }
+    case 'rot-nums-forward': {
+      // this game's numbers for every game after it too (only the chart; booked or played games keep their teams)
+      const div = ui.adminDiv, g = +el.dataset.g, rot = rotationOf(div), at = rotationAt(div, g), next = nextGameNumber(div);
+      const past = { ...(rot.past || {}) };
+      for (let x = g + 1; x <= gameColumns(div); x++) {
+        if (x < next) past[x] = { size: at.size, numbers: { ...at.numbers } }; else delete past[x];
+      }
+      state.rotation = { ...(state.rotation || {}), [div]: { ...rot, size: at.size, numbers: { ...at.numbers }, past } };
+      logAction(`${t('rotation')} · ${divName(div)}: ${t('rotForwardLog').replace('{g}', g)}`);
+      save(); return render();
+    }
+    case 'rot-hold': {
+      // hold a round for later (automatic weeks skip it) or let it be used again
+      const div = ui.adminDiv, r = +el.dataset.r, rot = rotationOf(div);
+      const held = new Set(rot.held || []);
+      const holding = !held.has(r);
+      if (holding) held.add(r); else held.delete(r);
+      const next = { ...rot, held: [...held].sort((a, b) => a - b) };
+      if (!next.held.length) delete next.held;
+      state.rotation = { ...(state.rotation || {}), [div]: next };
+      logAction(`${t('rotation')} · ${divName(div)}: ${t('roundWord')} ${r} ${t(holding ? 'rotHeldLog' : 'rotReleasedLog')}`);
+      save(); return render();
+    }
+    case 'rot-nums-toggle': { const g = +el.dataset.g; ui.rotNumsG = ui.rotNumsG === g ? null : g; return render(); }
+    case 'rot-game-now': {
+      // this past game on the chart takes today's numbers (only the chart; played games keep their teams)
+      const div = ui.adminDiv, g = +el.dataset.g, rot = rotationOf(div);
+      const past = { ...(rot.past || {}), [g]: { size: rot.size, numbers: { ...rot.numbers } } };
+      state.rotation = { ...(state.rotation || {}), [div]: { ...rot, past } };
+      logAction(`${t('rotation')} · ${divName(div)}: ${t('game')} ${g} ${t('rotLogNowNumbers')}`);
+      save(); return render();
+    }
     case 'hp-reset': delete state.homePage; logAction(`${t('homePageNav')}: ${t('hpResetDone')}`); save(); return render();
     case 'rot-past-apply': {
       // This division's past games on the chart take today's numbers. Only the chart changes: a withdrawn
@@ -8430,6 +8570,44 @@ document.addEventListener('change', e => {
     const rot = rotationOf(ui.adminDiv);
     const numbers = Object.fromEntries(Object.entries(rot.numbers).filter(([n]) => +n <= size));
     return setRotation(ui.adminDiv, { size, numbers }, `${t('howManyNumbers')} ${size}`);
+  }
+  if (e.target.dataset.change === 'rot-game-num') {
+    // this one game's numbers (only the chart for that game; booked or played games keep their teams)
+    const div = ui.adminDiv, g = +e.target.dataset.g, n = e.target.dataset.n, team = e.target.value, rot = rotationOf(div);
+    const at = rotationAt(div, g), numbers = { ...at.numbers };
+    const had = Object.keys(numbers).find(k => numbers[k] === team && k !== n);
+    if (had) { if (numbers[n]) numbers[had] = numbers[n]; else delete numbers[had]; }
+    if (team) numbers[n] = team; else delete numbers[n];
+    const past = { ...(rot.past || {}), [g]: { size: at.size, numbers } };
+    state.rotation = { ...(state.rotation || {}), [div]: { ...rot, past } };
+    logAction(`${t('rotation')} · ${divName(div)}: ${t('game')} ${g} · ${n} = ${team || '—'}`);
+    save(); return render();
+  }
+  if (e.target.dataset.change === 'rot-round-week') {
+    // which week plays this round: Automatic, TBD (held for later) or a picked week
+    const div = ui.adminDiv, r = +e.target.dataset.r, v = e.target.value, rot = rotationOf(div);
+    const rounds = Object.fromEntries(Object.entries(rot.rounds || {}).filter(([, x]) => x !== r));
+    const held = new Set(rot.held || []);
+    held.delete(r);
+    if (v === 'tbd') held.add(r);
+    if (v.startsWith('g:')) rounds[+v.slice(2)] = r;
+    const nextRot = { ...rot, rounds, held: [...held].sort((a, b) => a - b) };
+    if (!Object.keys(rounds).length) delete nextRot.rounds;
+    if (!nextRot.held.length) delete nextRot.held;
+    state.rotation = { ...(state.rotation || {}), [div]: nextRot };
+    logAction(`${t('rotation')} · ${divName(div)}: ${t('roundWord')} ${r} → ${v === 'tbd' ? t('rotGameTbd') : v === 'auto' ? t('rotAutoShort') : `${t('game')} ${v.slice(2)}`}`);
+    save(); return render();
+  }
+  if (e.target.dataset.change === 'rot-round') {
+    // which round this game plays (only the chart and what the planner suggests; booked games stay)
+    const div = ui.adminDiv, g = +e.target.dataset.g, r = +e.target.value, rot = rotationOf(div);
+    const rounds = { ...(rot.rounds || {}) };
+    if (!r) delete rounds[g]; else rounds[g] = r;
+    const next = { ...rot, rounds };
+    if (!Object.keys(rounds).length) delete next.rounds;
+    state.rotation = { ...(state.rotation || {}), [div]: next };
+    logAction(`${t('rotation')} · ${divName(div)}: ${t('game')} ${g} → ${r ? `${t('roundWord')} ${r}` : t('rotAutoShort')}`);
+    save(); return render();
   }
   if (e.target.dataset.change === 'rot-num') {
     const rot = rotationOf(ui.adminDiv), n = e.target.dataset.n, team = e.target.value;
