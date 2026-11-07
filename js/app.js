@@ -1417,7 +1417,7 @@ function matchCard(game, showDiv) {
     <div class="match-meta">
       ${showDiv ? `<span class="tag">${esc(divName(m.div))}</span>` : ''}
       ${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}
-      ${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
+      ${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.countOnly ? `<span class="tag filler-tag">${esc(countOnlyTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
       ${m.double ? `<span class="tag forfeit">${t('doubleForfeit')}</span>` : m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
       <span>${tbd ? t('newDateTbd') : m.left ? fmtDate(m.date) : `${fmtDate(playedDate(m))}${shownTime(m) ? ` · ${esc(shownTime(m))}` : ''}`}</span>
       ${tbd || m.left ? '' : `<span class="field-name">${esc(shownField(m))}</span>`}
@@ -3697,7 +3697,7 @@ function scoreRowHTML(m) {
   }
   return `
       <form class="score-row ${played(m) ? '' : 'open'}" data-form="score" data-id="${m.id}" data-league="${m.div}">
-        <div class="row-meta"><label class="pick-score" title="${t('selectGame')}"><input type="checkbox" data-change="score-pick" aria-label="${t('selectGame')}"></label>${m.draft ? `<span class="tag draft-tag">${t('notPublished')}${played(m) ? ` · ${t('onSite')} ${m.hs}–${m.as}` : ''}</span>` : ''}${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}: ${esc(m.fillerTeam)} · ${t('insteadOf')} ${esc((m.filler || {}).gone || '')}</span>` : ''}${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}${resultOf(m)?.forfeit ? `<span class="tag forfeit">${t('countsAsForfeit')}</span>` : ''}${postponedTag(m)} ${m.playedOn
+        <div class="row-meta"><label class="pick-score" title="${t('selectGame')}"><input type="checkbox" data-change="score-pick" aria-label="${t('selectGame')}"></label>${m.draft ? `<span class="tag draft-tag">${t('notPublished')}${played(m) ? ` · ${t('onSite')} ${m.hs}–${m.as}` : ''}</span>` : ''}${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.countOnly ? `<span class="tag filler-tag">${esc(countOnlyTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}: ${esc(m.fillerTeam)} · ${t('insteadOf')} ${esc((m.filler || {}).gone || '')}</span>` : ''}${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}${resultOf(m)?.forfeit ? `<span class="tag forfeit">${t('countsAsForfeit')}</span>` : ''}${postponedTag(m)} ${m.playedOn
           ? `${t('playedOn')} ${fmtDate(m.playedOn)}${m.playedTime ? ` · ${esc(m.playedTime)}` : ''} <span class="muted">(${t('gameDayOf')} ${fmtDate(m.date)} · ${esc(m.time)})</span>`
           : `${fmtDate(m.date)} · ${esc(m.time)}`} · ${esc(shownField(m))}</div>
         <div class="row-main">
@@ -3713,8 +3713,8 @@ function scoreRowHTML(m) {
           <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="score-unpublish" ${played(m) && !m.draft ? '' : 'hidden'}>${t('unpublish')}</button>
           <button type="button" class="btn btn-sm btn-outline" data-action="edit-game" data-id="${m.id}" aria-expanded="${ui.editGame === m.id}">${t('editGame')}</button>
           <button type="button" class="btn btn-sm btn-outline ${m.refReport || m.adminNotes ? 'has-notes' : ''}" data-action="toggle-notes" data-id="${m.id}" aria-expanded="${ui.notesOpen === m.id}">${t('notes')}${m.refReport || m.adminNotes ? ' •' : ''}</button>
-          ${m.fillerTeam && !m.fromFriendly ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>` : ''}
-          ${!played(m) && !m.fillerTeam && !m.playoff && !m.fromFriendly ? `<button type="button" class="btn btn-sm btn-outline" data-action="forfeit-open" data-id="${m.id}" aria-expanded="${ui.forfeitGame === m.id}">${t('forfeitGameBtn')}</button>` : ''}
+          ${m.fillerTeam && !m.fromFriendly && !m.countOnly ? `<button type="button" class="btn btn-sm btn-outline" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>` : ''}
+          ${!played(m) && (!m.fillerTeam || m.countOnly) && !m.playoff && !m.fromFriendly ? `<button type="button" class="btn btn-sm btn-outline" data-action="forfeit-open" data-id="${m.id}" aria-expanded="${ui.forfeitGame === m.id}">${t('forfeitGameBtn')}</button>` : ''}
           <button type="button" class="btn btn-sm btn-outline danger-outline" data-action="ask" data-confirm="rm-match" data-id="${m.id}">${t('deleteMatch')}</button>
         </div>
         ${pensBoxHTML(m)}
@@ -4103,6 +4103,9 @@ function editGameHTML(m) {
       <label class="field">${t('field')}<select class="select" name="efield" data-change="add-game-field">${fields.map(f =>
         `<option value="${f}" ${f === m.field ? 'selected' : ''}>${esc(FIELDS[f])}</option>`).join('')}${
         fields.length < openFields().length ? `<option value="__other">${t('otherField')}</option>` : ''}</select></label>
+      ${m.fromFriendly || m.filler || (m.fillerTeam && !m.countOnly) ? '' : `<div class="field counts-for">${t('countsForLabel')}
+        <span class="day-checks">${['home', 'away'].map(side => `<label class="check-pill"><input type="checkbox" name="ecount_${side}" ${m.countOnly && m.fillerTeam === m[side] ? '' : 'checked'}><span>${esc(m[side])}</span></label>`).join('')}</span>
+        <small class="muted">${t('countsForHelp')}</small></div>`}
       <p class="warn" hidden></p>
       <div class="edit-actions">
         <button type="button" class="btn btn-sm btn-outline" data-action="cancel-edit-game">${t('cancel')}</button>
@@ -4113,6 +4116,8 @@ function editGameHTML(m) {
 
 // Save a game's new teams, time and field. Its old slot on the Schedule page is left open, and the game
 // moves to its new field and time there. Warns (but still saves) if it now overlaps another game.
+// "Counts for ATLANTE only": the game counts for one of its teams (m.countOnly; m.fillerTeam is the one left out)
+const countOnlyTag = m => t('countsOnlyFor').replace('{t}', m.fillerTeam === m.home ? m.away : m.home);
 function saveEditGame(form) {
   const m = state.matches.find(x => x.id === +form.dataset.id);
   const h = parseInt(form.eh.value, 10), mi = form.em.value === '' ? 0 : parseInt(form.em.value, 10);
@@ -4129,10 +4134,19 @@ function saveEditGame(form) {
   if (day) Object.values(day).forEach(sec => Object.values(sec).forEach(rows => rows.forEach(r => {
     if (r.mid === m.id) Object.assign(r, { mid: null, home: '', away: '' });
   })));
+  // Counts for: a game can count for only one of its teams (the other team's standings leave it out)
+  const ch = form.querySelector('[name=ecount_home]'), ca = form.querySelector('[name=ecount_away]');
+  if (ch && ca && !ch.checked && !ca.checked) { warn.textContent = t('countsForNone'); warn.hidden = false; return; }
   if (played(m) && (home !== m.home || away !== m.away)) touch(m.div);
+  const wasOnly = m.countOnly ? m.fillerTeam : '';
   Object.assign(m, { home, away, time: fromMin(start), field });
+  if (ch && ca) {
+    const out = !ch.checked ? home : !ca.checked ? away : '';
+    if (out) { m.fillerTeam = out; m.countOnly = true; } else if (m.countOnly) { delete m.fillerTeam; delete m.countOnly; }
+    if ((out || '') !== wasOnly) touch(m.div);
+  }
   const clashes = findConflicts({ date: m.date, start, field, div: m.div, teams: [home, away], ignore: m.id });
-  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}`);
+  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}${m.countOnly ? ` · ${countOnlyTag(m)}` : ''}`);
   ui.editGame = null;
   save(); render();
   return toast(clashes.length
@@ -4586,7 +4600,9 @@ function syncRow(date, field, r) {
   const guest = ready ? (isGuest(r.home) ? r.home : isGuest(r.away) ? r.away : '') : '';
   if (ready && m) {
     Object.assign(m, { div: r.div, home: r.home, away: r.away, field, date, time: fromMin(r.t) });
-    if (guest) m.fillerTeam = guest; else if (m.fillerTeam && !m.filler) delete m.fillerTeam;
+    if (guest) { m.fillerTeam = guest; delete m.countOnly; }
+    else if (m.countOnly && ![m.home, m.away].includes(m.fillerTeam)) { delete m.fillerTeam; delete m.countOnly; }
+    else if (m.fillerTeam && !m.filler && !m.countOnly) delete m.fillerTeam;
     tagPlayoff(m);
   } else if (ready) {
     const nm = { id: state.nextId++, div: r.div, date, time: fromMin(r.t), field, home: r.home, away: r.away, hs: null, as: null, goals: [], ...(guest ? { fillerTeam: guest } : {}) };
