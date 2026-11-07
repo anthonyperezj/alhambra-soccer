@@ -1807,3 +1807,6 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .reg-card .reg-btns { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 6px; }
 .reg-card .reg-soon { margin-top: 6px; }
 .reg-card .reg-name { overflow-wrap: break-word; }
+.rot-game-size { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rot-game-size .input { width: 80px; }
+.rot-game-nums .rot-game-size { justify-content: flex-start; justify-self: start; text-align: left; flex-direction: row; }

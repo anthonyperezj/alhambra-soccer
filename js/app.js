@@ -6224,6 +6224,7 @@ function pageAdminRotation() {
           ${g ? `<button type="button" class="btn btn-sm btn-outline" data-action="rot-nums-toggle" data-g="${g}" aria-expanded="${ui.rotNumsG === g}">${t('rotEditNumbers')} ${ui.rotNumsG === g ? '▴' : '▾'}</button>
           ${ui.rotNumsG === g ? `<div class="rot-game-nums">
             <p class="muted small">${t('rotGameNumsHelp')}</p>
+            <label class="field inline rot-game-size">${t('rotGameSize')} <input class="input" type="number" min="2" max="30" inputmode="numeric" value="${at.size}" data-change="rot-game-size" data-g="${g}"></label>
             <div class="rot-pick rot-pick-game" style="--rows:${Math.ceil(at.size / 2)}">${Array.from({ length: at.size }, (_, i) => i + 1).map(n => `<label class="rot-slot"><span class="rot-n">${n}</span>
               <select class="select" data-change="rot-game-num" data-g="${g}" data-n="${n}" aria-label="${t('number')} ${n}">
                 <option value="">${t('chooseTeam')}</option>
@@ -8570,6 +8571,17 @@ document.addEventListener('change', e => {
     const rot = rotationOf(ui.adminDiv);
     const numbers = Object.fromEntries(Object.entries(rot.numbers).filter(([n]) => +n <= size));
     return setRotation(ui.adminDiv, { size, numbers }, `${t('howManyNumbers')} ${size}`);
+  }
+  if (e.target.dataset.change === 'rot-game-size') {
+    // how many numbers this one game has (only this game; numbers above the new count come off it)
+    const div = ui.adminDiv, g = +e.target.dataset.g, rot = rotationOf(div), at = rotationAt(div, g);
+    const size = Math.max(2, Math.min(30, parseInt(e.target.value, 10) || at.size));
+    if (size === at.size) return;
+    const numbers = Object.fromEntries(Object.entries(at.numbers).filter(([n]) => +n <= size));
+    const past = { ...(rot.past || {}), [g]: { size, numbers } };
+    state.rotation = { ...(state.rotation || {}), [div]: { ...rot, past } };
+    logAction(`${t('rotation')} · ${divName(div)}: ${t('game')} ${g} · ${t('howManyNumbers')} ${size}`);
+    save(); return render();
   }
   if (e.target.dataset.change === 'rot-game-num') {
     // this one game's numbers (only the chart for that game; booked or played games keep their teams)
