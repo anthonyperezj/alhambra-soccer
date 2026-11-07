@@ -1817,3 +1817,7 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 /* replacement row in Forfeits this day: Edit and Back to 3–0 sit together */
 .forfeit-row .replaced-actions { flex-basis: 100%; display: flex; gap: 20px; flex-wrap: wrap; padding-top: 6px; border-top: 1px dashed var(--line); margin-top: 2px; }
 .forfeit-row .replaced-actions .replacement-btn { flex-basis: auto; border-top: 0; padding: 0; margin: 0; }
+/* Join league: replacement games to count */
+.join-games-list { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.join-games-list .note { margin: 0 0 4px; }
+.join-games-list .join-game { justify-content: flex-start; text-align: left; white-space: normal; }

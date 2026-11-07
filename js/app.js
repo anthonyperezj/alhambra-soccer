@@ -666,7 +666,7 @@ function standings(div, matches = state.matches, teams = state.teams[div], out =
     const m = { ...game, ...r };
     // A guest "filler" team stands in for a withdrawn team: only the league team's side counts.
     const guest = () => ({ p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, form: [] });
-    const h = m.fillerTeam === m.home ? guest() : row(m.home), a = m.fillerTeam === m.away ? guest() : row(m.away);
+    const h = m.fillerTeam === m.home && !m.fillerCounts ? guest() : row(m.home), a = m.fillerTeam === m.away && !m.fillerCounts ? guest() : row(m.away);
     h.p++; a.p++;
     if (m.double) { h.l++; a.l++; h.ga += 3; a.ga += 3; h.form.push('L'); a.form.push('L'); return; }
     h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
@@ -7171,6 +7171,21 @@ function pickAddedTeam(key, name) {
   sel.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
+// A team that played as a replacement joining: tick which of those games count on its record (none by default).
+function joinGamesHTML(name) {
+  const key = (name || '').trim().toLowerCase();
+  const games = key ? state.matches.filter(m => m.fillerTeam && m.fillerTeam.toLowerCase() === key && !m.countOnly && !m.fromFriendly && !m.fillerCounts && !(state.teams[m.div] || []).includes(m.fillerTeam)).sort(byDateTime) : [];
+  if (!games.length) return '';
+  return `<fieldset class="div-checks join-games-list"><legend>${t('joinGamesTitle')}</legend>
+    <p class="note">${t('joinGamesHelp')}</p>
+    ${games.map(m => {
+      const us = m.fillerTeam, them = m.home === us ? m.away : m.home;
+      const res = played(m) ? (() => { const a = m.home === us ? m.hs : m.as, b = m.home === us ? m.as : m.hs; return `${t(a > b ? 'joinW' : a < b ? 'joinL' : 'joinD')} ${a}–${b}`; })() : t('joinNotPlayed');
+      return `<label class="check-pill join-game"><input type="checkbox" name="countGames" value="${m.id}"><span>${esc(divName(m.div))} · ${fmtDate(m.date)} · ${t('vs')} ${esc(them)} · ${esc(res)}</span></label>`;
+    }).join('')}
+  </fieldset>`;
+}
+
 // `archived`: bringing back an archived team (its name, logo and old divisions come filled in).
 function openAddTeam(join = '', rest = false, div = ui.adminDiv, addKey = '', archived = null, prefill = '', note = '') {
   const groups = [['youth', 'youth'], ['adult', 'adults'], ['futsal', 'futsal']];
@@ -7185,6 +7200,7 @@ function openAddTeam(join = '', rest = false, div = ui.adminDiv, addKey = '', ar
     ${archived ? `<p class="note">${t('bringBackTeamHelp')}</p>` : ''}
     ${note ? `<p class="note">${esc(note)}</p>` : ''}
     <label class="field">${t('teamName')}<input class="input" name="name" required autocomplete="off" value="${esc(join || (archived ? archived.name : prefill))}"></label>
+    <div class="join-games" data-join-games>${joinGamesHTML(join || prefill)}</div>
     <div class="logo-edit">
       <span class="logo-preview">${archived ? (logo ? `<span class="team-badge big has-logo"><img src="${logo}" alt=""></span>` : '<span class="team-badge big">＋</span>') : logo ? teamBadge(join, true, ui.adminDiv) : '<span class="team-badge big">＋</span>'}</span>
       <div class="logo-actions">
@@ -7230,7 +7246,7 @@ function recount(s) {
 // Games a withdrawn opponent had left still count in the order, so the columns don't shift.
 function teamGames(div, team, past) {
   const matches = past ? [...past.matches, ...forfeitStubs(div, past.withdrawn || [], past.matches)] : [...state.matches, ...forfeitStubs(div)];
-  return matches.filter(m => m.div === div && !m.playoff && m.fillerTeam !== team && (m.home === team || m.away === team)).sort(byDateTime);
+  return matches.filter(m => m.div === div && !m.playoff && (m.fillerTeam !== team || m.fillerCounts) && (m.home === team || m.away === team)).sort(byDateTime);
 }
 
 // The Goleadores sheet's columns follow the league's game numbers: G1 is the division's Game 1, G2 its
@@ -8297,7 +8313,7 @@ document.addEventListener('click', e => {
         const r = m.filler.regular;
         Object.assign(m, { home: r.home, away: r.away, forfeitBy: m.filler.gone, field: '', hs: null, as: null, goals: [] });
         if (r.forfeitFrom) m.forfeitFrom = r.forfeitFrom;
-        delete m.fillerTeam; delete m.filler;
+        delete m.fillerTeam; delete m.filler; delete m.fillerCounts;
       } else {
         const w = state.withdrawn[`${m.div}|${m.filler.gone}`];
         if (w) w.left = [...(w.left || []), m.filler.stub];
@@ -8588,6 +8604,11 @@ document.addEventListener('submit', e => {
         state.standingsHidden = { ...(state.standingsHidden || {}), [id]: [...hiddenFromStandings(id), name] };
       });
       if (added.length) logAction(`${t(join ? 'joinedLeague' : 'logTeamAdded')}: ${name} · ${added.join(', ')}${hide ? ` · ${t('hiddenFromStandingsTag')}` : ''}`);
+      // Replacement games picked to count on the new team's record.
+      const counted = f.getAll('countGames').map(Number).map(id => state.matches.find(m => m.id === id))
+        .filter(m => m && divs.includes(m.div) && added.includes(divName(m.div)));
+      counted.forEach(m => { if (m.fillerTeam.toLowerCase() === name.toLowerCase()) { if (m.home === m.fillerTeam) m.home = name; else m.away = name; m.fillerTeam = name; } m.fillerCounts = true; touch(m.div); });
+      if (counted.length) logAction(`${t('joinGamesLog')}: ${name} · ${counted.map(m => `${divName(m.div)} ${fmtDate(m.date)}`).join(', ')}`);
       // Divisions using the Game rotation: an empty number goes to the new team (nobody else's games change).
       // With every number taken it stays without one, and Game rotation shows it under "No number yet".
       const numbered = [];
@@ -9178,6 +9199,11 @@ document.addEventListener('toggle', e => {
 
 // Typing a score marks its game unsaved and shows the Save all bar.
 document.addEventListener('input', e => {
+  if (e.target.name === 'name' && e.target.form && e.target.form.dataset.form === 'add-team') {
+    const box = e.target.form.querySelector('[data-join-games]');
+    if (box) box.innerHTML = joinGamesHTML(e.target.value);
+    return;
+  }
   const f = e.target.closest && e.target.closest('form.score-row');
   // only the score boxes (a tick box sends this too, and is handled on change)
   if (!f || !e.target.classList.contains('score-in')) return;
