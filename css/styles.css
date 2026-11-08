@@ -1832,3 +1832,8 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .goles-alert ul:not([hidden]) { margin-top: 10px; }
 .goles-alert ul[hidden] { display: none; }
 .goles-alert .goles-gap { display: block; padding-left: 12px; }
+
+/* Schedule Sheet: Edit sheet mode */
+.sheet-editing [contenteditable] { cursor: text; outline: 1px dashed rgba(201, 162, 39, .7); outline-offset: -2px; }
+.sheet-editing [contenteditable]:focus { outline: 2px solid #c9a227; background: #fffbea; color: #000; white-space: normal; text-overflow: clip; }
+.sheet-editing .sheet-edited { background: #fff3c4; }

@@ -5458,10 +5458,52 @@ function futsalSheetHTML(date, day, fields) {
     ${fields.length ? fields.map(f => `<table class="fs-table">
       <colgroup><col class="c-team"><col class="c-gap"><col class="c-time"><col class="c-gap"><col class="c-team"></colgroup>
       <tr class="fs-field"><th colspan="5">${esc(court(f))}</th></tr>
-      ${day[f].map(r => (rowTaken(date, r) ? r : { t: r.t })).map(r => `<tr><td>${esc(r.home || '')}</td><td></td><td>${shortTime(r.t)}</td><td></td><td>${esc(r.away || '')}</td></tr>`).join('')}
+      ${day[f].map(r => (rowTaken(date, r) ? r : { t: r.t })).map(r => `<tr>${sheetCell(date, 'futsal', `${f}|${r.t}|home`, r.home || '')}<td></td>${sheetCell(date, 'futsal', `${f}|${r.t}|time`, shortTime(r.t))}<td></td>${sheetCell(date, 'futsal', `${f}|${r.t}|away`, r.away || '')}</tr>`).join('')}
     </table>`).join('') : `<p class="empty">${t('sheetEmpty')}</p>`}
   </article>`;
 }
+
+// A friendly on the sheet shows the division it's played in: the one picked for it, or the division its
+// teams are in (in this section first).
+function sheetFriendlyDiv(r, sec) {
+  const own = [r.fdiv, r.div].find(x => DIVISIONS.some(d => d.id === x));
+  if (own) return own;
+  const names = [r.home, r.away].filter(Boolean).map(n => n.toLowerCase());
+  const has = d => (state.teams[d.id] || []).some(n => names.includes(n.toLowerCase()));
+  const d = DIVISIONS.find(x => x.group === sec && has(x)) || DIVISIONS.find(has);
+  return d ? d.id : '';
+}
+// Words typed on the sheet itself (Edit sheet): kept for that day and section, in place of what the
+// planner gives. While editing, each box can be typed in; leaving a box saves it.
+const sheetEdits = (date, sec) => (((state.sheetEdits || {})[date] || {})[sec] || {});
+function sheetCell(date, sec, key, text, tag = 'td', cls = '', attrs = '') {
+  const ed = sheetEdits(date, sec), mine = Object.prototype.hasOwnProperty.call(ed, key);
+  const on = ui.sheetEdit && ui.sheetLive;
+  const c = [cls, on && mine ? 'sheet-edited' : ''].filter(Boolean).join(' ');
+  return `<${tag}${c ? ` class="${c}"` : ''} ${attrs}${on ? ` contenteditable="true" spellcheck="false" data-sheet-cell="${esc(key)}" data-def="${esc(text)}"` : ''}>${esc(mine ? ed[key] : text)}</${tag}>`;
+}
+function saveSheetCell(c) {
+  const date = ui.sheetDate, sec = ui.sheetSection || 'youth', key = c.dataset.sheetCell;
+  const v = c.textContent.replace(/\s+/g, ' ').trim(), ed = sheetEdits(date, sec);
+  const was = Object.prototype.hasOwnProperty.call(ed, key) ? ed[key] : c.dataset.def;
+  if (v === was) return;
+  const next = { ...ed };
+  if (v === c.dataset.def) delete next[key]; else next[key] = v;
+  const all = { ...(state.sheetEdits || {}) }, day = { ...(all[date] || {}) };
+  if (Object.keys(next).length) day[sec] = next; else delete day[sec];
+  if (Object.keys(day).length) all[date] = day; else delete all[date];
+  state.sheetEdits = all;
+  c.classList.toggle('sheet-edited', v !== c.dataset.def);
+  logAction(`${t('scheduleSheet')} · ${fmtDate(date)}: ${was || '—'} → ${v || '—'}`);
+  save();
+}
+document.addEventListener('focusout', e => { const c = e.target.closest && e.target.closest('[data-sheet-cell]'); if (c) saveSheetCell(c); });
+document.addEventListener('keydown', e => {
+  const c = e.target.closest && e.target.closest('[data-sheet-cell]');
+  if (!c) return;
+  if (e.key === 'Enter') { e.preventDefault(); c.blur(); }
+  if (e.key === 'Escape') { c.textContent = (sheetEdits(ui.sheetDate, ui.sheetSection || 'youth')[c.dataset.sheetCell] ?? c.dataset.def); c.blur(); }
+});
 
 function sheetHTML(date, sec) {
   const day = boardDay(date)[sec] || {};
@@ -5475,25 +5517,26 @@ function sheetHTML(date, sec) {
     });
   if (sec === 'futsal') return futsalSheetHTML(date, day, fields);
   const divLabel = (r) => {
-    if (isFriendly(date, r)) return 'AMISTOSO';
-    const d = DIVISIONS.find(x => x.id === (r.hold ? r.hold.div : r.div));
+    const d = DIVISIONS.find(x => x.id === (isFriendly(date, r) ? sheetFriendlyDiv(r, sec) : r.hold ? r.hold.div : r.div));
     return d ? (isTour(d) ? d.short || divName(d.id) : divName(d.id)).toUpperCase() : '';
   };
+  const cell = (key, text, cls = '') => sheetCell(date, sec, key, text, 'td', cls);
   return `<article class="sheet-page">
     <header class="sheet-head">
       <div class="sheet-brand">${LOGO}<span>LA ALHAMBRA<b>SOCCER LEAGUE</b></span></div>
-      <div class="sheet-title">${sheetTitles(date, sec).map(x => `<div>${esc(x)}</div>`).join('')}</div>
+      <div class="sheet-title">${sheetTitles(date, sec).map((x, i) => sheetCell(date, sec, `title|${i}`, x, 'div')).join('')}</div>
       <div class="sheet-date"><b>DATE</b><span>${sheetDate(date)}</span></div>
     </header>
     ${fields.length ? `<table class="sheet-table">
       <colgroup><col class="c-team"><col class="c-time"><col class="c-gap"><col class="c-team"><col class="c-div"><col class="c-ref"></colgroup>
       ${fields.map(f => `<tbody>
-        <tr class="sheet-field"><th colspan="4">${esc(sheetFieldTitle(f))}</th><th>DIVISION</th><th>ARBITRO</th></tr>
+        <tr class="sheet-field">${sheetCell(date, sec, `${f}|field`, sheetFieldTitle(f), 'th', '', 'colspan="4"')}<th>DIVISION</th><th>ARBITRO</th></tr>
         ${day[f].filter(r => rowTaken(date, r)).map(r => {
           const taken = true;
           const [h, a] = r.hold ? holdLabels(r) : [r.home || '', r.away || ''];
-          return `<tr><td>${taken ? esc(h) : ''}</td><td class="t">${shortTime(r.t)}</td><td></td><td>${taken ? esc(a) : ''}</td>
-            <td class="d">${taken ? esc(divLabel(r)) : ''}</td><td class="d">${taken ? esc(refFor(date, `${sec}|${f}`, r.t)) : ''}</td></tr>`;
+          const k = `${f}|${r.t}|`;
+          return `<tr>${cell(k + 'home', taken ? h : '')}${cell(k + 'time', shortTime(r.t), 't')}<td></td>${cell(k + 'away', taken ? a : '')}
+            ${cell(k + 'div', taken ? divLabel(r) : '', 'd')}${cell(k + 'ref', taken ? refFor(date, `${sec}|${f}`, r.t) : '', 'd')}</tr>`;
         }).join('')}
       </tbody>`).join('')}
     </table>` : `<p class="empty">${t('sheetEmpty')}</p>`}
@@ -5673,7 +5716,7 @@ const postHeadHTML = (what, div) => `<div class="post-block" style="width:760px"
 const postTableHTML = (what, div) => `<div class="post-block">${what === 'scorers' ? scorerImageHTML(div) : tableImageHTML(div)}</div>`;
 const loadImg = src => new Promise((ok, fail) => { const im = new Image(); im.onload = () => ok(im); im.onerror = fail; im.src = src; });
 // 2160 × 2700: the background fills it; the header goes across the top part and the table as big as fits
-// under it; the two together are centered.
+// under it.
 async function postCanvas(head, table, bgSrc) {
   const out = document.createElement('canvas');
   out.width = 2160; out.height = 2700;
@@ -5684,12 +5727,17 @@ async function postCanvas(head, table, bgSrc) {
     g.drawImage(bg, (out.width - bg.width * k) / 2, (out.height - bg.height * k) / 2, bg.width * k, bg.height * k);
   } catch (e) { g.fillStyle = '#10233f'; g.fillRect(0, 0, out.width, out.height); }
   g.imageSmoothingQuality = 'high';
-  const maxW = out.width * 0.88, maxH = out.height * 0.9, gap = out.height * 0.03;
+  // The picture is 4 × 5 inches (540 px an inch): the header starts 0.5 in from the top (not centered),
+  // with the same room kept free at the bottom.
+  const top = out.height / 10, maxW = out.width * 0.88, maxH = out.height - top * 2, gap = out.height * 0.03;
   const hk = maxW / head.width, hw = head.width * hk, hh = head.height * hk;
   const tk = Math.min(maxW / table.width, (maxH - hh - gap) / table.height), tw = table.width * tk, th = table.height * tk;
-  const top = (out.height - (hh + gap + th)) / 2;
   g.drawImage(head, (out.width - hw) / 2, top, hw, hh);
+  // a black drop shadow around the table
+  g.save();
+  Object.assign(g, { shadowColor: 'rgba(0, 0, 0, 0.85)', shadowBlur: 60, shadowOffsetX: 0, shadowOffsetY: 18 });
   g.drawImage(table, (out.width - tw) / 2, top + hh + gap, tw, th);
+  g.restore();
   return out;
 }
 // Saved pictures are named "[Division] [Game #] [Table type]", e.g. "40+ Game 9 Standings.png".
@@ -6103,7 +6151,10 @@ function pageAdminSheet() {
         <button type="button" class="btn btn-outline" data-action="sheet-export" data-as="png">${t('saveImage')}</button>
         ${sec !== 'futsal' && ['youth', 'adult'].every(x => sheetHasGames(date, x)) ? `<button type="button" class="btn btn-outline" data-action="sheet-export" data-as="pdf" data-whole="1" title="${t('wholeDayHelp')}">${t('wholeDayPdf')}</button>` : ''}
         <a class="btn btn-outline" href="#/admin/schedule" data-action="sheet-to-board">${t('editInPlanner')}</a>
+        <button type="button" class="btn ${ui.sheetEdit ? 'btn-gold' : 'btn-outline'}" data-action="sheet-edit" aria-pressed="${!!ui.sheetEdit}">${t(ui.sheetEdit ? 'sheetEditDone' : 'sheetEditBtn')}</button>
+        ${Object.keys(sheetEdits(date, sec)).length ? `<button type="button" class="btn btn-outline" data-action="ask" data-confirm="sheet-edits-reset" data-ask="askSheetReset" data-yes="yesReset">${t('sheetEditReset')}</button>` : ''}
       </div>
+      ${ui.sheetEdit ? `<p class="note">${t('sheetEditHelp')}</p>` : ''}
       ${fields.length && sec !== 'futsal' ? `<details class="card sheet-refs" ${ui.refsOpen ? 'open' : ''}><summary data-action="refs-toggle"><b>${t('referees')}</b> <span class="muted">${t('refereesHelp')}</span></summary>
         ${fields.map(f => {
           const key = `${sec}|${f}`;
@@ -6120,7 +6171,7 @@ function pageAdminSheet() {
         }).join('')}
       </details>` : ''}
     </div>
-    <div class="sheet-scroll">${sheetHTML(date, sec)}</div>`);
+    <div class="sheet-scroll ${ui.sheetEdit ? 'sheet-editing' : ''}">${(ui.sheetLive = true, '')}${sheetHTML(date, sec)}${(ui.sheetLive = false, '')}</div>`);
 }
 
 // ---------- game rotation (rol de juegos) ----------
@@ -8033,6 +8084,16 @@ document.addEventListener('click', e => {
       return setFieldRefs(date, key, list);
     }
     case 'print-sheet': return window.print();
+    case 'sheet-edit': ui.sheetEdit = !ui.sheetEdit; return render();
+    case 'sheet-edits-reset': {
+      const date = ui.sheetDate, sec = ui.sheetSection || 'youth';
+      const all = { ...(state.sheetEdits || {}) }, day = { ...(all[date] || {}) };
+      delete day[sec];
+      if (Object.keys(day).length) all[date] = day; else delete all[date];
+      state.sheetEdits = all;
+      logAction(`${t('scheduleSheet')} · ${fmtDate(date)}: ${t('sheetEditReset')}`);
+      save(); return render();
+    }
     case 'pdf-sheet': return saveSheetPdf(el);
     case 'sheet-export': return sheetExport(el);
     case 'export-card': return exportCard(el);
