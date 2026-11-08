@@ -652,6 +652,17 @@ function copaGroupTable(div, g) {
     .sort((x, y) => y.pts - x.pts || y.gd - x.gd || y.gf - x.gf || x.team.localeCompare(y.team));
 }
 
+// A team that wins 3–0 by forfeit and then plays as the replacement in another game that same day: the
+// game it played counts for it instead of the forfeit win (the team that forfeited still takes the 0–3 loss).
+const forfeitWinner = m => (m.forfeitBy === m.home ? m.away : m.home);
+function forfeitSwap(m, list = state.matches) {
+  if (!m.forfeitBy || doubleForfeit(m)) return null;
+  const w = forfeitWinner(m);
+  return list.find(x => x !== m && x.div === m.div && x.date === m.date && x.filler && x.fillerTeam === w && !x.countOnly && !x.fromFriendly) || null;
+}
+const fillsForForfeit = (x, list = state.matches) => !!x.filler && !x.countOnly && !x.fromFriendly
+  && list.some(m => m.forfeitBy && !doubleForfeit(m) && m.div === x.div && m.date === x.date && forfeitWinner(m) === x.fillerTeam);
+
 function standings(div, matches = state.matches, teams = state.teams[div], out = matches === state.matches ? withdrawnIn(div) : []) {
   const gone = new Set(out.map(w => w.team));
   const rows = new Map();
@@ -661,12 +672,16 @@ function standings(div, matches = state.matches, teams = state.teams[div], out =
   };
   (teams || []).forEach(row);
   [...matches.filter(m => m.div === div && !m.playoff), ...forfeitStubs(div, out, matches)].sort(byDateTime).forEach(game => {
+    // A team that forfeited keeps its 0–3 loss when a replacement team plays its game.
+    const fg = game.filler && game.filler.regular && game.filler.gone;
+    if (fg && game.date <= todayISO() && !gone.has(fg) && (teams || []).includes(fg)) { const g = row(fg); g.p++; g.l++; g.ga += 3; g.form.push('L'); }
     const r = resultOf(game, out);
     if (!r) return;
     const m = { ...game, ...r };
     // A guest "filler" team stands in for a withdrawn team: only the league team's side counts.
     const guest = () => ({ p: 0, w: 0, d: 0, l: 0, gf: 0, ga: 0, form: [] });
-    const h = m.fillerTeam === m.home && !m.fillerCounts ? guest() : row(m.home), a = m.fillerTeam === m.away && !m.fillerCounts ? guest() : row(m.away);
+    const counts = m.fillerCounts || fillsForForfeit(game, matches), skip = forfeitSwap(game, matches) ? forfeitWinner(game) : '';
+    const h = (m.fillerTeam === m.home && !counts) || skip === m.home ? guest() : row(m.home), a = (m.fillerTeam === m.away && !counts) || skip === m.away ? guest() : row(m.away);
     h.p++; a.p++;
     if (m.double) { h.l++; a.l++; h.ga += 3; a.ga += 3; h.form.push('L'); a.form.push('L'); return; }
     h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
@@ -4897,7 +4912,7 @@ function forfeitBoxHTML() {
           return `<div class="forfeit-row replaced-row" data-mid="${m.id}">
             <span class="tag filler-tag">${t('fillerTag')}</span>
             <b>${t('game')} ${gameNumber(m.div, m.date)}</b>
-            <span><b>${esc(stays)}</b> ${t('vs')} <b>${esc(m.fillerTeam)}</b> <span class="muted">· ${t('insteadOf')} ${esc(m.filler.gone)} (${t('forfeitedWord')}) · ${esc(m.time)}${m.field ? ` · ${esc(FIELDS[m.field] || m.field)}` : ''}</span></span>
+            <span><b>${esc(stays)}</b> ${t('vs')} <b>${esc(m.fillerTeam)}</b> <span class="muted">· ${t('insteadOf')} ${esc(m.filler.gone)} (${t('forfeitedWord')})${fillsForForfeit(m) ? ` · ${esc(t('fillerCountsFor').replace('{t}', m.fillerTeam))}` : ''} · ${esc(m.time)}${m.field ? ` · ${esc(FIELDS[m.field] || m.field)}` : ''}</span></span>
             <span class="replaced-actions">
               <button type="button" class="link-btn replacement-btn" data-action="filler-open" data-mid="${m.id}" aria-expanded="${ui.fillerFor === m.id}">${t('editWord')}</button>
               <button type="button" class="link-btn replacement-btn" data-action="ask" data-confirm="filler-undo" data-ask="askBackToForfeit" data-yes="yesBack" data-id="${m.id}">${t('backToForfeit')}</button>
@@ -4909,7 +4924,7 @@ function forfeitBoxHTML() {
         return `<div class="forfeit-row" data-mid="${m.id}">
           <span class="tag forfeit">${t(doubleForfeit(m) ? 'doubleForfeit' : 'forfeit')}</span>
           <b>${t('game')} ${gameNumber(m.div, m.date)}</b>
-          <span>${doubleForfeit(m) ? `<b>${esc(m.home)}</b> ${t('and')} <b>${esc(m.away)}</b> ${t('bothLose30Lower')}<span class="muted">` : `<b>${esc(winner)}</b> ${t('wins30')} <span class="muted">· ${esc(m.forfeitBy)} ${t('forfeitedWord')}`}${m.forfeitFrom ? ` · ${t('wasBooked')} ${esc(m.forfeitFrom.time)}` : ''}</span></span>
+          <span>${doubleForfeit(m) ? `<b>${esc(m.home)}</b> ${t('and')} <b>${esc(m.away)}</b> ${t('bothLose30Lower')}<span class="muted">` : `<b>${esc(winner)}</b> ${t('wins30')} <span class="muted">· ${esc(m.forfeitBy)} ${t('forfeitedWord')}`}${m.forfeitFrom ? ` · ${t('wasBooked')} ${esc(m.forfeitFrom.time)}` : ''}${forfeitSwap(m) ? ` · ${esc(t('forfeitNotCounted').replace('{t}', winner))}` : ''}</span></span>
           <button type="button" class="icon-btn danger" data-action="ask" data-confirm="rm-forfeit-game" data-ask="${m.forfeitFrom ? 'askBackToGame' : 'askRmForfeit'}" data-yes="${m.forfeitFrom ? 'yesBack' : 'yesRemove'}" data-id="${m.id}" aria-label="${t(m.forfeitFrom ? 'backToGame' : 'remove')}" title="${t(m.forfeitFrom ? 'backToGame' : 'remove')}">×</button>
           ${doubleForfeit(m) ? '' : `<button type="button" class="link-btn replacement-btn" data-action="filler-open" data-mid="${m.id}" aria-expanded="${ui.fillerFor === m.id}">＋ ${t('fillerBtn')}</button>`}
         </div>
@@ -7246,7 +7261,8 @@ function recount(s) {
 // Games a withdrawn opponent had left still count in the order, so the columns don't shift.
 function teamGames(div, team, past) {
   const matches = past ? [...past.matches, ...forfeitStubs(div, past.withdrawn || [], past.matches)] : [...state.matches, ...forfeitStubs(div)];
-  return matches.filter(m => m.div === div && !m.playoff && (m.fillerTeam !== team || m.fillerCounts) && (m.home === team || m.away === team)).sort(byDateTime);
+  return matches.filter(m => m.div === div && !m.playoff && (m.fillerTeam !== team || m.fillerCounts || fillsForForfeit(m, matches)) && (m.home === team || m.away === team)
+    && !(m.forfeitBy && m.forfeitBy !== team && forfeitSwap(m, matches))).sort(byDateTime);
 }
 
 // The Goleadores sheet's columns follow the league's game numbers: G1 is the division's Game 1, G2 its
