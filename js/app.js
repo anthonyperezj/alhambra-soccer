@@ -7022,7 +7022,7 @@ function mergeTeams(div, from, to) {
   const games = colGames(div, to);
   const keep = new Map();
   players.forEach(s => {
-    const key = s.own ? '\u0000own' : s.name.trim().toLowerCase();
+    const key = s.own ? `\u0000own${s.own}` : s.name.trim().toLowerCase();
     const goals = byGame.get(s);
     if (keep.has(key)) {
       const k = keep.get(key);
@@ -7301,11 +7301,13 @@ function sheetTeam() {
   return { teams, team: ui.sheetTeam };
 }
 
+// own: true = Default / Autogoal row, 'noname' = goals by a number that isn't on the roster (the team
+// total adds up, but nobody gets them on Goleadores).
 function sheetRow(s, cols, own, off = []) {
   const name = own
-    ? `<span class="own-label">${t('ownGoal')}</span>`
+    ? `<span class="own-label">${t(own === 'noname' ? 'noNameGoal' : 'ownGoal')}</span>`
     : `<input class="cell name" value="${esc(s ? s.name : '')}" placeholder="${s ? '' : t('addPlayerRow')}" aria-label="${t('player')}">`;
-  return `<tr data-sid="${s ? s.id : ''}" ${own ? 'data-own="1" class="own-row"' : ''}>
+  return `<tr data-sid="${s ? s.id : ''}" ${own ? `data-own="${own === 'noname' ? 'noname' : '1'}" class="own-row${own === 'noname' ? ' noname-row' : ''}"` : ''}>
     <td class="name-col">${name}</td>
     ${Array.from({ length: cols }, (_, g) => `<td class="${off[g] ? 'no-game' : ''}"><input class="cell g" data-g="${g}" inputmode="numeric" maxlength="2" value="${s && s.games[g] ? s.games[g] : ''}" aria-label="G${g + 1}"></td>`).join('')}
     <td class="total">${s ? s.goals : 0}</td>
@@ -7355,11 +7357,15 @@ function goalGaps(div) {
 function goalGapsHTML(div) {
   const list = goalGaps(div);
   if (!list.length) return '';
+  const open = !!ui.golesAlertOpen, n = list.length;
   return `<div class="goles-alert" role="status">
-    <p class="goles-alert-title">⚠ ${t('goalGapsTitle').replace('{div}', esc(divName(div)))}</p>
-    <ul>${list.map(({ team, gaps }) => `<li><button type="button" class="link-btn" data-action="goles-jump" data-team="${esc(team)}">${esc(team)}</button>
-      <span>${gaps.map(x => `G${x.g + 1} · ${fmtDate(x.date)}: ${(x.entered < x.scored ? t('goalGapsMissing') : t('goalGapsExtra'))
-        .replace('{e}', x.entered).replace('{s}', x.scored).replace('{n}', Math.abs(x.scored - x.entered))}`).join(' <span class="muted">·</span> ')}</span></li>`).join('')}</ul>
+    <div class="goles-alert-head">
+      <p class="goles-alert-title">⚠ ${t('goalGapsTitle').replace('{div}', esc(divName(div)))} <span class="muted">· ${n} ${t(n === 1 ? 'goalGapsTeam' : 'goalGapsTeams')}</span></p>
+      <button type="button" class="btn btn-sm btn-outline" data-action="goles-alert-toggle" aria-expanded="${open}">${t(open ? 'goalGapsHide' : 'goalGapsShow')}</button>
+    </div>
+    <ul ${open ? '' : 'hidden'}>${list.map(({ team, gaps }) => `<li><button type="button" class="link-btn" data-action="goles-jump" data-team="${esc(team)}">${esc(team)}</button>
+      ${gaps.map(x => `<span class="goles-gap">G${x.g + 1} · ${fmtDate(x.date)}: ${(x.entered < x.scored ? t('goalGapsMissing') : t('goalGapsExtra'))
+        .replace('{e}', x.entered).replace('{s}', x.scored).replace('{n}', Math.abs(x.scored - x.entered))}</span>`).join('')}</li>`).join('')}</ul>
   </div>`;
 }
 
@@ -7369,7 +7375,8 @@ function pageAdminScorers() {
   const { teams, team } = sheetTeam();
   if (!team) return adminShell('admin/scorers', `<h1 class="page-title">${t('manageScorers')}</h1>${divPills(div, 'data-admin-div', { scorers: true })}${empty(t('noMatches'))}`);
   const players = state.scorers.filter(s => s.div === div && s.team === team && !s.own).sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
-  const own = state.scorers.find(s => s.div === div && s.team === team && s.own);
+  const own = state.scorers.find(s => s.div === div && s.team === team && s.own === true);
+  const noname = state.scorers.find(s => s.div === div && s.team === team && s.own === 'noname');
   const byCol = colGames(div, team);
   const off = Array.from({ length: byCol.weeks }, (_, g) => !byCol[g]);
   const cols = Math.max(gameColumns(div), byCol.length, ...players.map(s => s.games.length));
@@ -7395,6 +7402,7 @@ function pageAdminScorers() {
         <tbody>
           ${players.map(s => sheetRow(s, cols, false, off)).join('')}
           ${Array.from({ length: BLANK_ROWS }, () => sheetRow(null, cols, false, off)).join('')}
+          ${sheetRow(noname, cols, 'noname', off)}
           ${sheetRow(own, cols, true, off)}
         </tbody>
         <tfoot><tr>
@@ -7414,8 +7422,8 @@ function saveSheetRow(tr) {
   const games = [...tr.querySelectorAll('.cell.g')].map(c => parseInt(c.value, 10) || 0);
   let s = state.scorers.find(x => x.id === +tr.dataset.sid);
   if (!s) {
-    const own = tr.dataset.own === '1';
-    const name = own ? 'DEFAULT/AUTOGOAL' : tr.querySelector('.cell.name').value.trim();
+    const own = tr.dataset.own === '1' ? true : tr.dataset.own === 'noname' ? 'noname' : false;
+    const name = own === true ? 'DEFAULT/AUTOGOAL' : own ? 'NO NAME' : tr.querySelector('.cell.name').value.trim();
     if (!name) return;
     s = { id: state.nextScorerId++, div: ui.adminDiv, name, team, games: [], goals: 0, own };
     state.scorers.push(s);
@@ -8338,6 +8346,7 @@ document.addEventListener('click', e => {
       save(); return render();
     }
     case 'forfeit-add-open': ui.forfeitAddOpen = !ui.forfeitAddOpen; return render();
+    case 'goles-alert-toggle': ui.golesAlertOpen = !ui.golesAlertOpen; return render();
     case 'goles-jump': ui.sheetTeam = el.dataset.team; render(); document.querySelector('.goles-head')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return;
     case 'filler-open': ui.fillerFor = ui.fillerFor === +el.dataset.mid ? null : +el.dataset.mid; return render();
     case 'filler-undo': {

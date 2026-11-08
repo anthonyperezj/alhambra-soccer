@@ -1827,3 +1827,8 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .goles-alert ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
 .goles-alert li { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; font-size: .92rem; }
 .goles-alert li .link-btn { font-weight: 700; padding: 0; }
+.goles-alert-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+.goles-alert-head .goles-alert-title { margin: 0; }
+.goles-alert ul:not([hidden]) { margin-top: 10px; }
+.goles-alert ul[hidden] { display: none; }
+.goles-alert .goles-gap { display: block; padding-left: 12px; }
