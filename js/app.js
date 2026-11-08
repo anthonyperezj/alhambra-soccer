@@ -7333,6 +7333,36 @@ function sheetFoot(div, team, cols) {
   return { cells, total: players.reduce((n, s) => n + s.goals, 0) };
 }
 
+// This division's teams whose player goals don't add up to a published score (game by game, like the
+// sheet's bottom row): missing goals first, then too many.
+function goalGaps(div) {
+  const out = [];
+  [...(state.teams[div] || [])].sort((a, b) => a.localeCompare(b)).forEach(team => {
+    const players = state.scorers.filter(s => s.div === div && s.team === team);
+    const games = colGames(div, team), gaps = [];
+    games.forEach((m, g) => {
+      if (!m) return;
+      const done = teamGames(div, team).filter(x => x.date === m.date && !x.left && played(x));
+      if (!done.length) return;
+      const scored = done.reduce((n, x) => n + (x.home === team ? x.hs : x.as), 0);
+      const entered = players.reduce((n, p) => n + (p.games[g] || 0), 0);
+      if (entered !== scored) gaps.push({ g, date: m.date, scored, entered });
+    });
+    if (gaps.length) out.push({ team, gaps });
+  });
+  return out;
+}
+function goalGapsHTML(div) {
+  const list = goalGaps(div);
+  if (!list.length) return '';
+  return `<div class="goles-alert" role="status">
+    <p class="goles-alert-title">⚠ ${t('goalGapsTitle').replace('{div}', esc(divName(div)))}</p>
+    <ul>${list.map(({ team, gaps }) => `<li><button type="button" class="link-btn" data-action="goles-jump" data-team="${esc(team)}">${esc(team)}</button>
+      <span>${gaps.map(x => `G${x.g + 1} · ${fmtDate(x.date)}: ${(x.entered < x.scored ? t('goalGapsMissing') : t('goalGapsExtra'))
+        .replace('{e}', x.entered).replace('{s}', x.scored).replace('{n}', Math.abs(x.scored - x.entered))}`).join(' <span class="muted">·</span> ')}</span></li>`).join('')}</ul>
+  </div>`;
+}
+
 function pageAdminScorers() {
   ui.adminDiv = scorerDiv(ui.adminDiv);
   const div = ui.adminDiv;
@@ -7347,6 +7377,7 @@ function pageAdminScorers() {
   return adminShell('admin/scorers', `
     <h1 class="page-title">${t('manageScorers')}</h1>
     <div class="toolbar">${divPills(div, 'data-admin-div', { scorers: true })}</div>
+    ${goalGapsHTML(div)}
     <div class="goles-head">
       <select class="select sheet-team" data-change="sheet-team" ${addTeamAttrs(div, 'sheet-team')} aria-label="${t('team')}">
         ${teams.map(n => `<option ${n === team ? 'selected' : ''}>${esc(n)}</option>`).join('')}${addTeamOpt()}
@@ -7401,6 +7432,10 @@ function saveSheetRow(tr) {
   const footCells = table.querySelectorAll('tfoot td');
   foot.cells.forEach((html, i) => { footCells[i + 1].outerHTML = html; });
   table.querySelector('tfoot td.total').textContent = foot.total;
+  // the notice at the top follows along
+  const alert = document.querySelector('.goles-alert'), fresh = goalGapsHTML(ui.adminDiv);
+  if (alert) { if (fresh) alert.outerHTML = fresh; else alert.remove(); }
+  else if (fresh) document.querySelector('.goles-head')?.insertAdjacentHTML('beforebegin', fresh);
   touch(ui.adminDiv);
   save();
 }
@@ -8303,6 +8338,7 @@ document.addEventListener('click', e => {
       save(); return render();
     }
     case 'forfeit-add-open': ui.forfeitAddOpen = !ui.forfeitAddOpen; return render();
+    case 'goles-jump': ui.sheetTeam = el.dataset.team; render(); document.querySelector('.goles-head')?.scrollIntoView({ block: 'start', behavior: 'smooth' }); return;
     case 'filler-open': ui.fillerFor = ui.fillerFor === +el.dataset.mid ? null : +el.dataset.mid; return render();
     case 'filler-undo': {
       // Put the 3–0 forfeit back (scores, goals and the guest game come off).
