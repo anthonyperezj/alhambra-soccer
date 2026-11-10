@@ -5927,10 +5927,10 @@ function tableImageHTML(div) {
   const o = tableSet(div), on = k => o.cols.includes(k);
   const rows = shownStandings(div);
   const used = tableUsed(div);
-  const head = k => ({ rank: '#', logo: '', p: t('imgPlayed'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('pts'), form: t('form') }[k]);
+  const head = k => ({ rank: '#', logo: '', p: t('imgPlayed'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('imgPts'), form: t('form') }[k]);
   const stats = ['p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts', 'form'].filter(on);
   // Form on the picture: the latest game first (left), then the ones before it
-  const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount).reverse()) : r[k]);
+  const val = (r, k) => (k === 'gd' ? `${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount).reverse()) : r[k]);
   // A height picked for the whole table: the rows share it (the titles row keeps its size), and logos and
   // text get smaller if the rows are too thin for them.
   const { headH, rowH } = used;
