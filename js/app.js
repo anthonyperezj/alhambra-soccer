@@ -5879,7 +5879,7 @@ const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, b
 const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Rajdhani', 'Bebas Neue', 'Bangers', 'Arial', 'Georgia'];
 const imgFontCSS = o => `font-family:'${IMG_FONTS.includes(o.font) ? o.font : 'Inter'}', system-ui, sans-serif;`;
 // The titles row has its own font (Bangers unless another is picked).
-const imgHeadFont = o => `--hfont:'${IMG_FONTS.includes(o.headFont) ? o.headFont : 'Bangers'}';`;
+const imgHeadFont = o => `--hfont:'${IMG_FONTS.includes(o.headFont) ? o.headFont : 'Bangers'}';${o.headFontSize > 0 ? `--hfsize:${o.headFontSize}px;` : ''}`;
 // headHeight 0 = the titles row sizes itself; spaceBelow = empty space under the table inside the picture.
 const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, headHeight: 0, spaceBelow: 0, formCount: 5, ...IMG_LOOK, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
 // The Goleadores picture works the same way, with how many players show and each column's width (0 = auto).
@@ -6099,6 +6099,7 @@ function pageAdminTable() {
       <div class="league-grid ti-look">
         <label class="field">${t('ti_font')}<select class="select" data-change="ti-font">${IMG_FONTS.map(f => `<option ${f === o.font ? 'selected' : ''} style="font-family:'${f}'">${f}</option>`).join('')}</select></label>
         <label class="field">${t('ti_headFont')}<select class="select" data-change="ti-font" data-k="headFont">${IMG_FONTS.map(f => `<option ${f === (IMG_FONTS.includes(o.headFont) ? o.headFont : 'Bangers') ? 'selected' : ''} style="font-family:'${f}'">${f}</option>`).join('')}</select></label>
+        <label class="field">${t('ti_headFontSize')}<span class="len-input"><input class="input" type="number" min="${inch ? 4.5 : 6}" max="${inch ? 48 : 64}" step="${inch ? 0.5 : 1}" value="${o.headFontSize > 0 ? (inch ? +(o.headFontSize * 0.75).toFixed(1) : Math.round(o.headFontSize)) : ''}" placeholder="${t('ti_auto2')}" data-change="ti-set" data-k="headFontSize" data-unit="${inch ? 'pt' : 'px'}"> ${inch ? 'pt' : 'px'}</span></label>
       </div>
       <div class="day-checks"><label class="check-pill"><input type="checkbox" data-change="ti-flag" data-k="bold" ${o.bold ? 'checked' : ''}><span>${t('ti_bold')}</span></label></div>
       <p class="field-label">${t('ti_lookRows')}</p>
@@ -9013,7 +9014,7 @@ document.addEventListener('change', e => {
     if (e.target.dataset.change === 'ti-set') {
       const k = e.target.dataset.k, inch = e.target.dataset.unit === 'in';
       let n = parseFloat(e.target.value);
-      const zeroOk = ['height', 'headHeight', 'spaceBelow'].includes(k) || k.startsWith('col:');
+      const zeroOk = ['height', 'headHeight', 'spaceBelow', 'headFontSize'].includes(k) || k.startsWith('col:');
       if (zeroOk && e.target.value.trim() === '') n = 0;
       if (!(n >= 0) || (n === 0 && !zeroOk)) return;
       // leaving the automatic height as it was shown doesn't fix it
@@ -9021,10 +9022,10 @@ document.addEventListener('change', e => {
       if (e.target.dataset.unit === 'pt') n = n / 0.75;
       else if (inch) n = n * 96;
       const key = k.startsWith('col:') ? 'colWidth' : k;
-      const lo = { width: 400, height: 0, rowHeight: 12, fontSize: 8, logoSize: 8, headHeight: 12, spaceBelow: 0, colWidth: 20, bottomHeight: 1, rowWidth: 200 }[key], hi = { width: 1600, height: 2400, rowHeight: 120, fontSize: 32, logoSize: 70, headHeight: 120, spaceBelow: 600, colWidth: 800, bottomHeight: 60, rowWidth: 1600 }[key];
+      const lo = { headFontSize: 6, width: 400, height: 0, rowHeight: 12, fontSize: 8, logoSize: 8, headHeight: 12, spaceBelow: 0, colWidth: 20, bottomHeight: 1, rowWidth: 200 }[key], hi = { headFontSize: 64, width: 1600, height: 2400, rowHeight: 120, fontSize: 32, logoSize: 70, headHeight: 120, spaceBelow: 600, colWidth: 800, bottomHeight: 60, rowWidth: 1600 }[key];
       // font sizes keep fractions so 11 pt stays 11 pt; the rest are whole pixels
       const top = kind === 'scores' && key === 'rowHeight' ? 400 : hi; // a score row can be taller than a table row
-      const v = n === 0 ? 0 : Math.max(lo, Math.min(top, k === 'fontSize' ? Math.round(n * 100) / 100 : Math.round(n)));
+      const v = n === 0 ? 0 : Math.max(lo, Math.min(top, k === 'fontSize' || k === 'headFontSize' ? Math.round(n * 100) / 100 : Math.round(n)));
       if (k.startsWith('col:')) o.colWidths = { ...o.colWidths, [k.slice(4)]: v }; else o[k] = v;
     }
     if (e.target.dataset.change === 'ti-col') o.cols = (kind === 'scorers' ? SCORER_COLS : TABLE_COLS).map(c => c[0]).filter(k => (k === e.target.value ? e.target.checked : o.cols.includes(k)));

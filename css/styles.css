@@ -1850,3 +1850,5 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .table-img td.ti-team { width: 2.8in; }
 .table-img .ti-rank { width: 1.5em; padding: 0 .2em; }
 .table-img td:not(.ti-team):not(.ti-logo):not(.ti-rank), .table-img th:not(.ti-team):not(.ti-rank) { padding-left: .25em; padding-right: .25em; }
+/* titles row font size (blank = automatic) */
+.table-img th, .scorer-img .si-head { font-size: var(--hfsize, .78em); }
