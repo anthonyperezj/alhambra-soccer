@@ -1687,7 +1687,7 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 /* Standings picture: no outline; 1st place keeps only the thin gold line (drawn as a background, which the
    picture export keeps thin); bold text option */
 .table-img table { border: 0; }
-.table-img tr.top .ti-rank, .table-img tr.top td:first-child { box-shadow: none; background: linear-gradient(90deg, #d4a72c 0 13.6px, transparent 13.6px); }
+.table-img tr.top .ti-rank, .table-img tr.top td:first-child { box-shadow: none; background: linear-gradient(#d4a72c, #d4a72c) no-repeat 0 0 / 13.6px 100%; }
 .table-img tbody tr.top td.ti-rank { background-color: transparent; }
 .table-img.bold td, .table-img.bold .ti-team, .table-img.bold .ti-club, .table-img.bold .si-who small { font-weight: 800; }
 .table-img.bold th, .scorer-img.bold .si-head { font-weight: 800; }
@@ -1700,8 +1700,8 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .hp-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px 14px; }
 .hp-fields textarea { resize: vertical; font-family: inherit; }
 /* Standings picture: silver line for 2nd, bronze for 3rd */
-.table-img tr.second .ti-rank, .table-img tr.second td:first-child { background: linear-gradient(90deg, #b4b4b4 0 13.6px, transparent 13.6px); }
-.table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(90deg, #c8864d 0 13.6px, transparent 13.6px); }
+.table-img tr.second .ti-rank, .table-img tr.second td:first-child { background: linear-gradient(#b4b4b4, #b4b4b4) no-repeat 0 0 / 13.6px 100%; }
+.table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(#c8864d, #c8864d) no-repeat 0 0 / 13.6px 100%; }
 /* Form: centered in its column (website and pictures) */
 .table .form-col { text-align: center; }
 .table-img .ti-form, .table-img th.ti-form { text-align: center; }
@@ -1837,3 +1837,16 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .sheet-editing [contenteditable] { cursor: text; outline: 1px dashed rgba(201, 162, 39, .7); outline-offset: -2px; }
 .sheet-editing [contenteditable]:focus { outline: 2px solid #c9a227; background: #fffbea; color: #000; white-space: normal; text-overflow: clip; }
 .sheet-editing .sheet-edited { background: #fff3c4; }
+
+/* Saved images: GAME no longer cut at the bottom of the header */
+.post-block .export-head { padding-bottom: 12px; }
+.post-block .eh-game { line-height: 1.15; }
+/* Schedule sheet: only the headings are bold */
+.sheet-table td, .fs-table td { font-weight: 400; }
+/* Standings / Goleadores pictures: titles row in its own font (Bangers) with a dark black shadow */
+.table-img th, .scorer-img .si-head { font-family: var(--hfont, 'Bangers'), system-ui, sans-serif; font-weight: 400; letter-spacing: .04em; text-shadow: 0 2px 2px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.7); }
+.table-img.bold th, .scorer-img.bold .si-head { font-weight: 400; }
+/* team names: 2.8 in wide, wider when a name needs it (the number columns give up their room first) */
+.table-img td.ti-team { width: 2.8in; }
+.table-img .ti-rank { width: 1.5em; padding: 0 .2em; }
+.table-img td:not(.ti-team):not(.ti-logo):not(.ti-rank), .table-img th:not(.ti-team):not(.ti-rank) { padding-left: .25em; padding-right: .25em; }

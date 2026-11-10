@@ -5573,13 +5573,9 @@ function fitLongNames(root) {
     long.forEach(x => {
       Object.assign(x.c.style, { width: `${avail}px`, maxWidth: `${avail}px`, whiteSpace: 'nowrap' });
       x.f = x.f0;
-      while (textW(x.c) > inner(x.c) && x.f > x.f0 * 0.7) { x.f *= 0.95; x.c.style.fontSize = `${x.f}px`; }
+      // always on one line: a long name only gets smaller (down to about a third of its size)
+      while (textW(x.c) > inner(x.c) && x.f > x.f0 * 0.35) { x.f *= 0.95; x.c.style.fontSize = `${x.f}px`; }
     });
-    // 2) a name still too long goes on two lines, smaller still if it needs it
-    const wrap = long.filter(x => textW(x.c) > inner(x.c));
-    wrap.forEach(x => Object.assign(x.c.style, { whiteSpace: 'normal', lineHeight: '1.05', overflowWrap: 'anywhere' }));
-    // (never below about half size: an extremely long name takes a third line instead of becoming unreadable)
-    wrap.forEach(x => { while ((lines(x.c) > 2 || x.c.scrollWidth > x.c.clientWidth + 0.5) && x.f > x.f0 * 0.55) { x.f *= 0.95; x.c.style.fontSize = `${x.f}px`; } });
   });
   // Goleadores picture: a player or team name wider than its space gets smaller instead of being cut off
   root.querySelectorAll('.scorer-img .si-who strong, .scorer-img .si-who small').forEach(el => {
@@ -5880,8 +5876,10 @@ const TABLE_COLS = [['rank', '#'], ['logo', 'logoCol'], ['p', 'played'], ['w', '
 // in the titles row's color (like a row with 0.3 pt text in a spreadsheet).
 const IMG_LOOK = { headFill: '#faf8f2', headColor: '#000000', bottomRow: true, bottomHeight: 4, font: 'Inter', bold: false };
 // Fonts the pictures can use (loaded in index.html, or on every computer).
-const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Rajdhani', 'Bebas Neue', 'Arial', 'Georgia'];
+const IMG_FONTS = ['Inter', 'Oswald', 'Montserrat', 'Roboto', 'Roboto Condensed', 'Rajdhani', 'Bebas Neue', 'Bangers', 'Arial', 'Georgia'];
 const imgFontCSS = o => `font-family:'${IMG_FONTS.includes(o.font) ? o.font : 'Inter'}', system-ui, sans-serif;`;
+// The titles row has its own font (Bangers unless another is picked).
+const imgHeadFont = o => `--hfont:'${IMG_FONTS.includes(o.headFont) ? o.headFont : 'Bangers'}';`;
 // headHeight 0 = the titles row sizes itself; spaceBelow = empty space under the table inside the picture.
 const TABLE_DEFAULTS = { unit: 'in', autoFit: true, width: 760, height: 0, rowHeight: 36, fontSize: 14, logoSize: 26, headerRow: true, headHeight: 0, spaceBelow: 0, formCount: 5, ...IMG_LOOK, cols: ['rank', 'logo', 'p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts'] };
 // The Goleadores picture works the same way, with how many players show and each column's width (0 = auto).
@@ -5909,7 +5907,7 @@ function setImg(kind, o, div = ui.adminDiv) {
   state[key] = { ...(state[key] || {}), [div]: o };
   save();
 }
-const imgLookVars = (o, used) => `--hfill:${o.headFill};--hcolor:${o.headColor};--bottom:${used.botH}px;${imgFontCSS(o)}`;
+const imgLookVars = (o, used) => `--hfill:${o.headFill};--hcolor:${o.headColor};--bottom:${used.botH}px;${imgFontCSS(o)}${imgHeadFont(o)}`;
 const scorerImgRows = div => topScorers(leaders(div), imgSet('scorers', div).count);
 // With Auto-fit on, a set Height decides the rows (and logos/text shrink to fit); with it off your sizes
 // stay as typed and the picture is still the Height tall (see-through under the table, or cut if longer).
@@ -5929,7 +5927,7 @@ function tableImageHTML(div) {
   const o = tableSet(div), on = k => o.cols.includes(k);
   const rows = shownStandings(div);
   const used = tableUsed(div);
-  const head = k => ({ rank: '#', logo: '', p: t('played'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('pts'), form: t('form') }[k]);
+  const head = k => ({ rank: '#', logo: '', p: t('imgPlayed'), w: t('won'), d: t('drawn'), l: t('lost'), gf: t('gf'), ga: t('ga'), gd: t('gd'), pts: t('pts'), form: t('form') }[k]);
   const stats = ['p', 'w', 'd', 'l', 'gf', 'ga', 'gd', 'pts', 'form'].filter(on);
   // Form on the picture: the latest game first (left), then the ones before it
   const val = (r, k) => (k === 'gd' ? `${r.gd > 0 ? '+' : ''}${r.gd}` : k === 'form' ? formChips(r.form.slice(-o.formCount).reverse()) : r[k]);
@@ -6100,6 +6098,7 @@ function pageAdminTable() {
         <label class="check-pill"><input type="checkbox" data-change="ti-header" ${o.headerRow ? 'checked' : ''}><span>${t('ti_headerRow')}</span></label></div>
       <div class="league-grid ti-look">
         <label class="field">${t('ti_font')}<select class="select" data-change="ti-font">${IMG_FONTS.map(f => `<option ${f === o.font ? 'selected' : ''} style="font-family:'${f}'">${f}</option>`).join('')}</select></label>
+        <label class="field">${t('ti_headFont')}<select class="select" data-change="ti-font" data-k="headFont">${IMG_FONTS.map(f => `<option ${f === (IMG_FONTS.includes(o.headFont) ? o.headFont : 'Bangers') ? 'selected' : ''} style="font-family:'${f}'">${f}</option>`).join('')}</select></label>
       </div>
       <div class="day-checks"><label class="check-pill"><input type="checkbox" data-change="ti-flag" data-k="bold" ${o.bold ? 'checked' : ''}><span>${t('ti_bold')}</span></label></div>
       <p class="field-label">${t('ti_lookRows')}</p>
@@ -8996,7 +8995,7 @@ document.addEventListener('change', e => {
   }
   if (e.target.dataset.change === 'ti-font') {
     const kind = ['scorers', 'scores'].includes(ui.tiKind) ? ui.tiKind : 'standings';
-    if (IMG_FONTS.includes(e.target.value)) setImg(kind, { ...imgSet(kind), font: e.target.value });
+    if (IMG_FONTS.includes(e.target.value)) setImg(kind, { ...imgSet(kind), [e.target.dataset.k === 'headFont' ? 'headFont' : 'font']: e.target.value });
     return render();
   }
   if (['ti-set', 'ti-col', 'ti-header', 'ti-autofit', 'ti-count', 'ti-color', 'ti-flag'].includes(e.target.dataset.change)) {
