@@ -1866,3 +1866,5 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 /* Standings picture: Form boxes sized by --chip (text size, capped by the row height) */
 .table-img .form { gap: calc(var(--chip, 1.05em) * .14); }
 .table-img .form i { width: var(--chip, 1.05em); height: var(--chip, 1.05em); line-height: var(--chip, 1.05em); font-size: calc(var(--chip, 1.05em) * .68); border-radius: calc(var(--chip, 1.05em) * .24); }
+/* numbers are drawn a little above their line's middle; the Form boxes move up the same amount so they line up */
+.table-img .form { position: relative; top: -.045em; }
