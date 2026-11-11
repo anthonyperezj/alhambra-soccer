@@ -1457,7 +1457,8 @@ function empty(msg) {
 // ---------- public pages ----------
 
 function formChips(form) {
-  return `<span class="form">${form.map(f => `<i class="f-${f}">${f === 'W' ? t('won') : f === 'D' ? t('drawn') : t('lost')}</i>`).join('')}</span>`;
+  // the first one is the most recent game: underlined in its result's color
+  return `<span class="form">${form.map((f, i) => `<i class="f-${f}${i === 0 ? ' latest' : ''}">${f === 'W' ? t('won') : f === 'D' ? t('drawn') : t('lost')}</i>`).join('')}</span>`;
 }
 
 // Small team logo for public pages. No logo means nothing is shown (a blank spacer in tables so names line up).
@@ -5569,6 +5570,12 @@ const safeName = x => x.replace(/[\\/:*?"<>|]/g, '-');
 // picture's width. Runs on the preview and on the copy drawn for saving.
 function fitLongNames(root) {
   const textW = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
+  // Standings picture: the team column stays 3 in wide; a longer name gets smaller text to fit in it
+  root.querySelectorAll('.table-img td.ti-team').forEach(c => {
+    const cs = getComputedStyle(c), room = 288 - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+    const f0 = parseFloat(cs.fontSize);
+    for (let f = f0; textW(c) > room && f > f0 * 0.35; ) { f *= 0.95; c.style.fontSize = `${f}px`; }
+  });
   root.querySelectorAll('.table-img table, .export-card .table').forEach(table => {
     const box = table.closest('.table-img') || table.closest('.table-card') || table.parentElement;
     const cs = getComputedStyle(box);

@@ -1846,8 +1846,8 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 /* Standings / Goleadores pictures: titles row in its own font (Bangers) with a dark black shadow */
 .table-img th, .scorer-img .si-head { font-family: var(--hfont, 'Bangers'), system-ui, sans-serif; font-weight: 400; letter-spacing: .04em; text-shadow: 0 2px 2px rgba(0,0,0,.95), 0 0 4px rgba(0,0,0,.7); }
 .table-img.bold th, .scorer-img.bold .si-head { font-weight: 400; }
-/* team names: 2.8 in wide, wider when a name needs it (the number columns give up their room first) */
-.table-img td.ti-team { width: 2.8in; }
+/* team names: 3 in wide; a longer name gets smaller text (fitLongNames) */
+.table-img td.ti-team { width: 3in; }
 .table-img .ti-rank { width: 1.5em; padding: 0 .2em; }
 .table-img td:not(.ti-team):not(.ti-logo):not(.ti-rank), .table-img th:not(.ti-team):not(.ti-rank) { padding-left: .25em; padding-right: .25em; }
 /* titles row font size (blank = automatic) */
@@ -1855,3 +1855,9 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 /* Goleadores: Save and Add row under the sheet */
 .goles-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .goles-actions .add-row { margin-top: 0; }
+/* Form: the most recent game (first) is underlined in its result's color */
+.form i.latest { position: relative; overflow: visible; }
+.form i.latest::after { content: ''; position: absolute; left: 8%; right: 8%; bottom: -5px; height: 3px; border-radius: 2px; background: var(--win); }
+.form i.f-D.latest::after { background: var(--draw); }
+.form i.f-L.latest::after { background: var(--loss); }
+.table-img .form i.latest::after { bottom: -.3em; height: .18em; }
