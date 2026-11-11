@@ -1704,7 +1704,7 @@ form.score-row.unsaved { box-shadow: 0 0 0 2px var(--gold); }
 .table-img tr.third .ti-rank, .table-img tr.third td:first-child { background: linear-gradient(#c8864d, #c8864d) no-repeat 0 0 / 13.6px 100%; }
 /* Form: centered in its column (website and pictures) */
 .table .form-col { text-align: center; }
-.table-img .ti-form, .table-img th.ti-form { text-align: center; }
+.table-img .ti-form, .table-img th.ti-form { text-align: left; }
 /* In the standings picture the Form chips grow and shrink with the table's text size, letter centered */
 .table-img .form { gap: .2em; vertical-align: middle; }
 .table-img .form i { width: 1.45em; height: 1.45em; font-size: .72em; line-height: 1.45em; border-radius: .35em; padding: 0; display: inline-block; text-align: center; box-sizing: border-box; }
@@ -1860,4 +1860,9 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .form i.latest::after { content: ''; position: absolute; left: 8%; right: 8%; bottom: -5px; height: 3px; border-radius: 2px; background: var(--win); }
 .form i.f-D.latest::after { background: var(--draw); }
 .form i.f-L.latest::after { background: var(--loss); }
-.table-img .form i.latest::after { bottom: -.3em; height: .18em; }
+/* on the picture the underline reaches down over the row line into the row below (drawn on top of it) */
+.table-img .form i.latest { z-index: 1; }
+.table-img .form i.latest::after { bottom: -.3em; height: .2em; box-shadow: 0 0 0 .07em #fff; }
+/* Standings picture: Form boxes sized by --chip (text size, capped by the row height) */
+.table-img .form { gap: calc(var(--chip, 1.05em) * .14); }
+.table-img .form i { width: var(--chip, 1.05em); height: var(--chip, 1.05em); line-height: var(--chip, 1.05em); font-size: calc(var(--chip, 1.05em) * .68); border-radius: calc(var(--chip, 1.05em) * .24); }

@@ -5944,6 +5944,9 @@ function tableUsed(div, kind = 'standings') {
     logo: fit ? Math.max(8, Math.min(o.logoSize, sc ? Math.floor(rowH * 0.34) : rowH - 6)) : o.logoSize,
     font: fit ? Math.max(8, Math.min(o.fontSize, Math.floor(rowH * (sc ? 0.3 : 0.62)))) : o.fontSize };
 }
+// The W/D/L boxes on the picture follow the text size, but never take more than about 60% of a row's
+// height (so short rows don't get crowded) and leave room for the underline.
+const formChip = (font, rowH) => Math.max(6, Math.round(Math.min(font * 1.05, rowH * 0.6) * 10) / 10);
 function tableImageHTML(div) {
   const o = tableSet(div), on = k => o.cols.includes(k);
   const rows = shownStandings(div);
@@ -5957,7 +5960,7 @@ function tableImageHTML(div) {
   const { headH, rowH } = used;
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   const ncols = (on('rank') ? 1 : 0) + (on('logo') ? 1 : 0) + 1 + stats.length;
-  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;${imgLookVars(o, used)}">
+  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;--chip:${formChip(used.font, rowH)}px;${imgLookVars(o, used)}">
     <table>
       ${o.headerRow ? `<thead><tr>${on('rank') ? `<th class="ti-rank">#</th>` : ''}<th class="ti-team" colspan="${on('logo') ? 2 : 1}">${t('team')}</th>${stats.map(k => `<th class="${k === 'form' ? 'ti-form' : ''}">${head(k)}</th>`).join('')}</tr></thead>` : ''}
       <tbody>${rows.map((r, i) => `<tr class="${['top', 'second', 'third'][i] || ''}">
