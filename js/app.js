@@ -7527,7 +7527,19 @@ function saveSheetRow(tr) {
     tr.dataset.sid = s.id;
     if (!own) logAction(`${t('logPlayerAdded')} · ${divName(ui.adminDiv)}: ${name} (${team})`);
   } else if (!s.own) {
-    s.name = tr.querySelector('.cell.name').value.trim() || s.name;
+    const nm = tr.querySelector('.cell.name').value.trim();
+    if (!nm) {
+      // Erasing the name of a player with no goals takes the player off; with goals the name stays
+      // (clear the goals first, or use ×).
+      if (!games.some(Boolean)) {
+        undoable(t('playerRemoved'));
+        logAction(`${t('playerRemoved')} · ${divName(s.div)}: ${s.name} (${s.team}, ${s.goals} ${t('goalsWord')})`, { type: 'scorer', scorer: clone(s) });
+        state.scorers = state.scorers.filter(x => x.id !== s.id);
+        touch(ui.adminDiv); save(); return render();
+      }
+      tr.querySelector('.cell.name').value = s.name;
+      toast(t('nameNeededGoals'));
+    } else s.name = nm;
   }
   s.games = games;
   while (s.games.length && !s.games[s.games.length - 1]) s.games.pop();
