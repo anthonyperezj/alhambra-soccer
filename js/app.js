@@ -27,7 +27,9 @@ function applyFieldChanges() {
 const isOpenField = f => !(state.fieldsClosed || {})[f];
 const openFields = () => Object.keys(FIELDS).filter(isOpenField);
 const ui = {
-  div: DIVISIONS.some(d => d.id === readPref('asl-div')) ? readPref('asl-div') : '40', team: '', adminDiv: '40', adminFilter: 'needs', sheetTeam: null,
+  div: DIVISIONS.some(d => d.id === readPref('asl-div')) ? readPref('asl-div') : '40', team: '', adminDiv: '40', adminFilter: 'needs', sheetTeam: readPref('asl-steam') || null,
+  // the admin division picked last, brought back after a refresh (see keepAdminDiv)
+  adminDivPref: readPref('asl-adiv'),
   boardDate: null, boardWeek: null, boardSection: 'youth', boardDays: {}, closedFields: new Set(), menuOpen: false, admin: readFlag('asl-admin'),
 };
 
@@ -7395,9 +7397,10 @@ function sheetFoot(div, team, cols) {
     const day = m ? teamGames(div, team).filter(x => x.date === m.date && !x.left) : [];
     const done = day.filter(played);
     const scored = done.length ? done.reduce((n, x) => n + (x.home === team ? x.hs : x.as), 0) : null;
-    const off = sum > 0 && scored !== null && sum !== scored;
+    // red when the players' goals don't match the score, nothing entered yet included (0/4); 0/0 is fine
+    const off = scored !== null && sum !== scored;
     const tip = day.map(x => `${fmtDate(x.date)} ${t('vs')} ${x.home === team ? x.away : x.home}${played(x) ? ` · ${t('scored')} ${x.home === team ? x.hs : x.as}` : ''}`).join(' + ');
-    return `<td class="${off ? 'mismatch' : ''}" title="${esc(tip)}">${sum || ''}${scored !== null ? `<small>/${scored}</small>` : ''}</td>`;
+    return `<td class="${off ? 'mismatch' : ''}" title="${esc(tip)}">${scored !== null ? `${sum}<small>/${scored}</small>` : sum || ''}</td>`;
   });
   return { cells, total: players.reduce((n, s) => n + s.goals, 0) };
 }
@@ -7612,7 +7615,21 @@ function fitSheet() {
 }
 window.addEventListener('resize', fitSheet);
 
+// The admin pages open on the division (and Goleadores team) picked last, also after a refresh. A league
+// added online only exists once the online data is in, so the saved one waits for it.
+function keepAdminDiv() {
+  const p = ui.adminDivPref;
+  if (p) {
+    if (DIVISIONS.some(d => d.id === p)) { ui.adminDiv = p; ui.adminDivPref = null; }
+    else if (!cloudOn() || (typeof CLOUD !== 'undefined' && CLOUD.ready)) ui.adminDivPref = null;
+  }
+  try {
+    if (!ui.adminDivPref) localStorage.setItem('asl-adiv', ui.adminDiv);
+    if (ui.sheetTeam) localStorage.setItem('asl-steam', ui.sheetTeam); else localStorage.removeItem('asl-steam');
+  } catch (e) {}
+}
 function render() {
+  keepAdminDiv();
   // An admin whose account was removed is signed out.
   if (!cloudOn() && ui.admin && admins().length && !admins().some(a => a.id === readWho())) { ui.admin = false; writeFlag('asl-admin', false); writeWho(''); }
   fillHolds();
