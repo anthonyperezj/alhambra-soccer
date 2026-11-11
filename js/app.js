@@ -1497,7 +1497,7 @@ function standingsTable(div, compact, limit, past) {
         <td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}${esc(r.team)}</span></td><td>${r.p}</td>
         ${full ? `<td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td class="hide-sm">${r.gf}</td><td class="hide-sm">${r.ga}</td>` : ''}
         <td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td>
-        <td class="hide-sm form-col">${formChips(r.form)}</td>
+        <td class="hide-sm form-col">${formChips([...r.form].reverse())}</td>
       </tr>`).join('')}</tbody>
     </table>
   </div>`;
