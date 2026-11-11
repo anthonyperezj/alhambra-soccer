@@ -5960,8 +5960,9 @@ function tableImageHTML(div) {
   const { headH, rowH } = used;
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   const ncols = (on('rank') ? 1 : 0) + (on('logo') ? 1 : 0) + 1 + stats.length;
-  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;--chip:${formChip(used.font, rowH)}px;${imgLookVars(o, used)}">
-    <table>
+  return `<div class="table-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${rowH}px;--head:${headH}px;--logo:${used.logo}px;--chip:${formChip(used.font, rowH)}px;--formw:${Math.round(formChip(used.font, rowH) * (o.formCount + (o.formCount - 1) * 0.14))}px;${imgLookVars(o, used)}">
+    <table class="ti-cols">
+      <colgroup>${on('rank') ? '<col class="c-rank">' : ''}${on('logo') ? '<col class="c-logo">' : ''}<col class="c-team">${stats.map(k => `<col class="${k === 'form' ? 'c-form' : 'c-stat'}">`).join('')}</colgroup>
       ${o.headerRow ? `<thead><tr>${on('rank') ? `<th class="ti-rank">#</th>` : ''}<th class="ti-team" colspan="${on('logo') ? 2 : 1}">${t('team')}</th>${stats.map(k => `<th class="${k === 'form' ? 'ti-form' : ''}">${head(k)}</th>`).join('')}</tr></thead>` : ''}
       <tbody>${rows.map((r, i) => `<tr class="${['top', 'second', 'third'][i] || ''}">
         ${on('rank') ? `<td class="ti-rank">${i + 1}</td>` : ''}${on('logo') ? `<td class="ti-logo">${teamLogo(r.team, div) ? `<img src="${teamLogo(r.team, div)}" alt="">` : ''}</td>` : ''}

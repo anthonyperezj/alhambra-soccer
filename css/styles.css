@@ -1868,3 +1868,15 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .table-img .form i { width: var(--chip, 1.05em); height: var(--chip, 1.05em); line-height: var(--chip, 1.05em); font-size: calc(var(--chip, 1.05em) * .68); border-radius: calc(var(--chip, 1.05em) * .24); }
 /* numbers are drawn a little above their line's middle; the Form boxes move up the same amount so they line up */
 .table-img .form { position: relative; top: -.045em; }
+/* the Form column is as wide as its boxes, so the FORM heading sits centered over them */
+.table-img td.ti-form, .table-img th.ti-form { width: var(--formw, auto); }
+.table-img th.ti-form { text-align: center; }
+/* Standings picture columns: #, logo, a 3 in team column and Form (as wide as its boxes, at the right
+   edge) keep their sizes; the number columns share what's left equally */
+.table-img table.ti-cols { table-layout: fixed; }
+.table-img col.c-rank { width: 1.9em; }
+.table-img col.c-logo { width: calc(var(--logo) + 8px + .4em); }
+.table-img col.c-team { width: 3in; }
+.table-img col.c-form { width: calc(var(--formw, 5em) + .5em); }
+.table-img col.c-rank { width: 1.55em; }
+.table-img table.ti-cols td:not(.ti-team):not(.ti-logo):not(.ti-form), .table-img table.ti-cols th:not(.ti-team):not(.ti-form) { padding-left: .08em; padding-right: .08em; }
