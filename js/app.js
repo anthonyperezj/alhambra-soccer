@@ -4123,6 +4123,9 @@ function editGameHTML(m) {
       ${m.fromFriendly || m.filler || (m.fillerTeam && !m.countOnly) ? '' : `<div class="field counts-for">${t('countsForLabel')}
         <span class="day-checks">${['home', 'away'].map(side => `<label class="check-pill"><input type="checkbox" name="ecount_${side}" ${m.countOnly && m.fillerTeam === m[side] ? '' : 'checked'}><span>${esc(m[side])}</span></label>`).join('')}</span>
         <small class="muted">${t('countsForHelp')}</small></div>`}
+      ${m.filler && !m.countOnly && (state.teams[m.div] || []).includes(m.fillerTeam) ? `<div class="field counts-for">${t('countsForLabel')}
+        <span class="day-checks"><label class="check-pill"><input type="checkbox" checked disabled><span>${esc(m.home === m.fillerTeam ? m.away : m.home)}</span></label><label class="check-pill"><input type="checkbox" name="ecount_filler" ${m.fillerCounts ? 'checked' : ''}><span>${esc(m.fillerTeam)} (${t('fillerTag').toLowerCase()})</span></label></span>
+        <small class="muted">${t('fillerCountsHelp')}</small></div>` : ''}
       <p class="warn" hidden></p>
       <div class="edit-actions">
         <button type="button" class="btn btn-sm btn-outline" data-action="cancel-edit-game">${t('cancel')}</button>
@@ -4155,6 +4158,10 @@ function saveEditGame(form) {
   const ch = form.querySelector('[name=ecount_home]'), ca = form.querySelector('[name=ecount_away]');
   if (ch && ca && !ch.checked && !ca.checked) { warn.textContent = t('countsForNone'); warn.hidden = false; return; }
   if (played(m) && (home !== m.home || away !== m.away)) touch(m.div);
+  // a replacement game can count for the replacement team too, once it's a league team
+  const cf = form.querySelector('[name=ecount_filler]');
+  const countsWas = !!m.fillerCounts;
+  if (cf) { if (cf.checked) m.fillerCounts = true; else delete m.fillerCounts; if (countsWas !== cf.checked) touch(m.div); }
   const wasOnly = m.countOnly ? m.fillerTeam : '';
   Object.assign(m, { home, away, time: fromMin(start), field });
   if (ch && ca) {
@@ -4163,7 +4170,7 @@ function saveEditGame(form) {
     if ((out || '') !== wasOnly) touch(m.div);
   }
   const clashes = findConflicts({ date: m.date, start, field, div: m.div, teams: [home, away], ignore: m.id });
-  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}${m.countOnly ? ` · ${countOnlyTag(m)}` : ''}`);
+  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}${m.countOnly ? ` · ${countOnlyTag(m)}` : ''}${cf && countsWas !== cf.checked ? ` · ${t(cf.checked ? 'friendlyNowCounts' : 'friendlyNoLongerCounts')} ${m.fillerTeam}` : ''}`);
   ui.editGame = null;
   save(); render();
   return toast(clashes.length
@@ -4966,6 +4973,7 @@ function fillerFormHTML(m, team) {
       fields.length < openFields().length ? `<option value="__other">${t('otherField')}</option>` : ''}</select>
     <select class="select" name="time" data-change="filler-time" aria-label="${t('time')}">${fillerTimeOptions(times, cur)}</select>
     <input class="input" type="time" name="customTime" aria-label="${t('time')}" ${times.length ? 'hidden' : ''}>
+    ${edit && (state.teams[m.div] || []).includes(m.fillerTeam) ? `<label class="check-pill filler-counts"><input type="checkbox" name="counts" ${m.fillerCounts ? 'checked' : ''}><span>${esc(t('fillerCountsToo').replace('{t}', m.fillerTeam))}</span></label>` : ''}
     <button class="btn btn-sm btn-gold" type="submit">${t(edit ? 'save' : 'fillerBook')}</button>
     ${edit ? `<button class="btn btn-sm btn-outline" type="button" data-action="filler-open" data-mid="${m.id}">${t('cancel')}</button>` : ''}
     <p class="warn" hidden></p>
@@ -5095,9 +5103,13 @@ function editFiller(form, m) {
   Object.values(boardDay(date)[sec] || {}).forEach(rows => rows.forEach(r => { if (r.mid === m.id) Object.assign(r, { mid: null, home: '', away: '' }); }));
   if (m.home === m.fillerTeam) m.home = name; else m.away = name;
   Object.assign(m, { fillerTeam: name, time: fromMin(start), field });
+  // a league team playing as the replacement can have the game count for it too
+  const counts = !!(form.counts && form.counts.checked && (state.teams[m.div] || []).includes(name));
+  const countsBefore = !!m.fillerCounts;
+  if (counts) m.fillerCounts = true; else delete m.fillerCounts;
   ui.fillerFor = null;
   touch(m.div);
-  logAction(`${t('fillerEdited')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${team} ${t('vs')} ${name} · ${m.time} (${t('fillerWas')} ${before})`);
+  logAction(`${t('fillerEdited')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${team} ${t('vs')} ${name} · ${m.time} (${t('fillerWas')} ${before})${counts !== countsBefore ? ` · ${t(counts ? 'friendlyNowCounts' : 'friendlyNoLongerCounts')} ${name}` : ''}`);
   save(); render();
 }
 
@@ -7328,8 +7340,11 @@ function colGames(div, team, past) {
   const days = [...new Set(all.filter(m => m.div === div && !m.playoff && !m.fromFriendly).map(m => m.date))].sort();
   const out = [];
   games.forEach(m => { const i = days.indexOf(m.date); if (i >= 0 && !out[i]) out[i] = m; });
-  return Object.assign(out, { weeks: days.length });
+  return Object.assign(out, { weeks: days.length, days });
 }
+// A week the team has no game in shows grey on Goleadores, once that day has come (a coming week may
+// still get a game).
+const noGameCol = (c, g) => !c[g] && g < c.weeks && !(c.days && c.days[g] > todayISO());
 // Once: the columns used to follow each team's own games (G1 = its first game). Each team's goals move to
 // the column of the game they were scored in. A team already typed by game number (its column totals match
 // those games' scores better) stays as it is. Returns true if anything moved.
@@ -7392,7 +7407,7 @@ function sheetFoot(div, team, cols) {
   const cells = Array.from({ length: cols }, (_, g) => {
     const sum = players.reduce((n, s) => n + (s.games[g] || 0), 0);
     const m = games[g];
-    if (!m && g < games.weeks) return `<td class="no-game" title="${esc(t('noGameThisWeek'))}">${sum || ''}</td>`;
+    if (noGameCol(games, g)) return `<td class="no-game" title="${esc(t('noGameThisWeek'))}">${sum || ''}</td>`;
     // every game the team played that day and that counts for it (two games in a day add up)
     const day = m ? teamGames(div, team).filter(x => x.date === m.date && !x.left) : [];
     const done = day.filter(played);
@@ -7444,11 +7459,20 @@ function pageAdminScorers() {
   const div = ui.adminDiv;
   const { teams, team } = sheetTeam();
   if (!team) return adminShell('admin/scorers', `<h1 class="page-title">${t('manageScorers')}</h1>${divPills(div, 'data-admin-div', { scorers: true })}${empty(t('noMatches'))}`);
-  const players = state.scorers.filter(s => s.div === div && s.team === team && !s.own).sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
+  let players = state.scorers.filter(s => s.div === div && s.team === team && !s.own).sort((a, b) => b.goals - a.goals || a.name.localeCompare(b.name));
+  // While typing, rows stay where they are (each change is still saved right away); Save puts them in
+  // order by goals. New players go under the others.
+  const key = `${div}|${team}`;
+  if (ui.golesOrder && ui.golesOrder.key === key) {
+    const pos = new Map(ui.golesOrder.ids.map((id, i) => [id, i]));
+    const at = x => (pos.has(x.id) ? pos.get(x.id) : 1e9 + x.id);
+    players = [...players].sort((a, b) => at(a) - at(b));
+  }
+  ui.golesOrder = { key, ids: players.map(x => x.id) };
   const own = state.scorers.find(s => s.div === div && s.team === team && s.own === true);
   const noname = state.scorers.find(s => s.div === div && s.team === team && s.own === 'noname');
   const byCol = colGames(div, team);
-  const off = Array.from({ length: byCol.weeks }, (_, g) => !byCol[g]);
+  const off = Array.from({ length: byCol.weeks }, (_, g) => noGameCol(byCol, g));
   const cols = Math.max(gameColumns(div), byCol.length, ...players.map(s => s.games.length));
   const foot = sheetFoot(div, team, cols);
   return adminShell('admin/scorers', `
@@ -7466,7 +7490,7 @@ function pageAdminScorers() {
       <table class="sheet" data-team="${esc(team)}" data-cols="${cols}">
         <thead><tr>
           <th class="name-col">${t('playerName')}</th>
-          ${Array.from({ length: cols }, (_, g) => (!byCol[g] && g < byCol.weeks ? `<th class="no-game" title="${esc(t('noGameThisWeek'))}">G${g + 1}</th>` : `<th>G${g + 1}</th>`)).join('')}
+          ${Array.from({ length: cols }, (_, g) => (noGameCol(byCol, g) ? `<th class="no-game" title="${esc(t('noGameThisWeek'))}">G${g + 1}</th>` : `<th>G${g + 1}</th>`)).join('')}
           <th class="total">${t('total')}</th><th class="row-x"></th>
         </tr></thead>
         <tbody>
@@ -7482,7 +7506,10 @@ function pageAdminScorers() {
         </tr></tfoot>
       </table>
     </div>
-    <button type="button" class="btn btn-outline add-row" data-action="add-sheet-row">＋ ${t('addRow')}</button>`);
+    <div class="goles-actions">
+      <button type="button" class="btn btn-gold" data-action="goles-save">${t('golesSave')}</button>
+      <button type="button" class="btn btn-outline add-row" data-action="add-sheet-row">＋ ${t('addRow')}</button>
+    </div>`);
 }
 
 // Save one row of the sheet (creating the player the first time a name or goal is typed).
@@ -7790,10 +7817,17 @@ document.addEventListener('click', e => {
         state = seedData(); applyFieldChanges(); save(); render();
       }
       return;
+    case 'goles-save': {
+      // every box is already saved as it's typed; this sends it right away and sorts the rows by goals
+      ui.golesOrder = null;
+      if (typeof cloudPush === 'function') cloudPush();
+      render();
+      return toast(t('golesSaved'));
+    }
     case 'add-sheet-row': {
       const table = document.querySelector('.sheet');
       { const c = colGames(ui.adminDiv, table.dataset.team);
-        table.querySelector('.own-row').insertAdjacentHTML('beforebegin', sheetRow(null, +table.dataset.cols, false, Array.from({ length: c.weeks }, (_, g) => !c[g]))); }
+        table.querySelector('.own-row').insertAdjacentHTML('beforebegin', sheetRow(null, +table.dataset.cols, false, Array.from({ length: c.weeks }, (_, g) => noGameCol(c, g)))); }
       return table.querySelector('.own-row').previousElementSibling.querySelector('.cell.name').focus();
     }
     case 'board-section': ui.boardSection = el.dataset.section; return render();

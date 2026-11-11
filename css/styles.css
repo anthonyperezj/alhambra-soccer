@@ -1852,3 +1852,6 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .table-img td:not(.ti-team):not(.ti-logo):not(.ti-rank), .table-img th:not(.ti-team):not(.ti-rank) { padding-left: .25em; padding-right: .25em; }
 /* titles row font size (blank = automatic) */
 .table-img th, .scorer-img .si-head { font-size: var(--hfsize, .78em); }
+/* Goleadores: Save and Add row under the sheet */
+.goles-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.goles-actions .add-row { margin-top: 0; }
