@@ -7531,14 +7531,14 @@ function saveSheetRow(tr) {
   let s = state.scorers.find(x => x.id === +tr.dataset.sid);
   if (!s) {
     const own = tr.dataset.own === '1' ? true : tr.dataset.own === 'noname' ? 'noname' : false;
-    const name = own === true ? 'DEFAULT/AUTOGOAL' : own ? 'NO NAME' : tr.querySelector('.cell.name').value.trim();
+    const name = own === true ? 'DEFAULT/AUTOGOAL' : own ? 'NO NAME' : nameCase(tr.querySelector('.cell.name').value.trim());
     if (!name) return;
     s = { id: state.nextScorerId++, div: ui.adminDiv, name, team, games: [], goals: 0, own };
     state.scorers.push(s);
     tr.dataset.sid = s.id;
     if (!own) logAction(`${t('logPlayerAdded')} · ${divName(ui.adminDiv)}: ${name} (${team})`);
   } else if (!s.own) {
-    const nm = tr.querySelector('.cell.name').value.trim();
+    const nm = nameCase(tr.querySelector('.cell.name').value.trim());
     if (!nm) {
       // Erasing the name of a player with no goals takes the player off; with goals the name stays
       // (clear the goals first, or use ×).
@@ -7550,7 +7550,7 @@ function saveSheetRow(tr) {
       }
       tr.querySelector('.cell.name').value = s.name;
       toast(t('nameNeededGoals'));
-    } else s.name = nm;
+    } else { s.name = nm; tr.querySelector('.cell.name').value = nm; }
   }
   s.games = games;
   while (s.games.length && !s.games[s.games.length - 1]) s.games.pop();
@@ -7717,7 +7717,7 @@ function applyGoals(m, list, sign) {
     let s = state.scorers.find(x => x.div === m.div && x.name.toLowerCase() === g.name.toLowerCase() && x.team === team);
     if (!s) {
       if (sign < 0) return;
-      s = { id: state.nextScorerId++, div: m.div, name: g.name, team, games: [], goals: 0 };
+      s = { id: state.nextScorerId++, div: m.div, name: nameCase(g.name), team, games: [], goals: 0 };
       state.scorers.push(s);
     }
     const game = colGames(m.div, team).findIndex(x => x && x.id === m.id);
@@ -9420,6 +9420,16 @@ setLang(LANG);
 // One-time data upgrades. They run on the published site only, so working on a copy here never changes the
 // league's data before it's published. (The test copy can run them by hand: upgradeGoalCols().)
 const LIVE_SITE = /(^|\.)alhambrasoccer\.com$|\.github\.io$/.test(location.hostname);
-function runUpgrades() { return LIVE_SITE ? upgradeGoalCols() : false; }
+// Names typed in all caps ("ANTHONY PEREZ") are kept as "Anthony Perez"; names with any small letters stay as typed.
+function nameCase(n) {
+  if (!n || /\p{Ll}/u.test(n)) return n;
+  return n.toLowerCase().replace(/(^|[\s\-'’.])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
+}
+function upgradeNameCase() {
+  let changed = false;
+  state.scorers.forEach(s => { if (!s.own) { const n = nameCase(s.name); if (n !== s.name) { s.name = n; changed = true; } } });
+  return changed;
+}
+function runUpgrades() { if (!LIVE_SITE) return false; const a = upgradeGoalCols(), b = upgradeNameCase(); return a || b; }
 runUpgrades();
 render();
