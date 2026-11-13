@@ -5978,14 +5978,14 @@ function scorerImageHTML(div) {
   const used = tableUsed(div, 'scorers');
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   // columns: rank · player · goals (a typed width wins; otherwise the player takes the room)
-  const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
+  const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${on('team') ? 'var(--silogo) ' : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
   return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
-    ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
+    ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}${on('team') ? '<span></span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
     ${rows.map((sc, i) => {
       const r = i + 1, logo = on('logo') && teamLogo(sc.team, div);
       return `<div class="si-row ${r <= 3 ? `si-p${r}` : ''}">
         ${on('rank') ? `<span class="si-rank"><b>${r}</b></span>` : ''}
-        <span class="si-who"><strong>${esc(sc.name)}</strong>${on('team') ? `<small>${logo ? `<img src="${logo}" alt="">` : ''}${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
+        ${on('team') ? `<span class="si-logo">${logo ? `<img src="${logo}" alt="">` : ''}</span>` : ''}<span class="si-who"><strong>${esc(sc.name)}</strong>${on('team') ? `<small>${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
         <span class="si-goals">${sc.goals}</span></div>`;
     }).join('')}
     ${o.bottomRow ? '<div class="si-bottom"></div>' : ''}</div>`;
@@ -9420,11 +9420,8 @@ setLang(LANG);
 // One-time data upgrades. They run on the published site only, so working on a copy here never changes the
 // league's data before it's published. (The test copy can run them by hand: upgradeGoalCols().)
 const LIVE_SITE = /(^|\.)alhambrasoccer\.com$|\.github\.io$/.test(location.hostname);
-// Names typed in all caps ("ANTHONY PEREZ") are kept as "Anthony Perez"; names with any small letters stay as typed.
-function nameCase(n) {
-  if (!n || /\p{Ll}/u.test(n)) return n;
-  return n.toLowerCase().replace(/(^|[\s\-'’.])(\p{L})/gu, (m, a, b) => a + b.toUpperCase());
-}
+// Goleadores names are kept in capital letters: "Anthony Perez" is saved as "ANTHONY PEREZ".
+const nameCase = n => (n ? n.toUpperCase() : n);
 function upgradeNameCase() {
   let changed = false;
   state.scorers.forEach(s => { if (!s.own) { const n = nameCase(s.name); if (n !== s.name) { s.name = n; changed = true; } } });

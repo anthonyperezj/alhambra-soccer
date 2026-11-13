@@ -1880,3 +1880,13 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .table-img col.c-form { width: calc(var(--formw, 5em) + .5em); }
 .table-img col.c-rank { width: 1.55em; }
 .table-img table.ti-cols td:not(.ti-team):not(.ti-logo):not(.ti-form), .table-img table.ti-cols th:not(.ti-team):not(.ti-form) { padding-left: .08em; padding-right: .08em; }
+/* Goleadores picture: name and team close together, the logo in its own column as tall as both lines,
+   bold rank and goals, and every rank in a circle that stays inside its row */
+.scorer-img { --silogo: min(calc(1.06em + .78em * 1.08), calc(var(--row) * .86)); }
+.scorer-img .si-who strong { line-height: 1.06; }
+.scorer-img .si-who small { margin-top: 0; line-height: 1.08; }
+.scorer-img .si-logo { width: var(--silogo); height: var(--silogo); display: grid; place-items: center; }
+.scorer-img .si-logo img { width: 100%; height: 100%; object-fit: contain; }
+.scorer-img .si-row .si-rank b { font-weight: 700; width: min(2em, calc(var(--row) * .8 / 1.25)); height: min(2em, calc(var(--row) * .8 / 1.25)); }
+.scorer-img .si-row:not(.si-p1):not(.si-p2):not(.si-p3) .si-rank b { background: #000; color: #fff; }
+.scorer-img .si-row .si-goals { font-weight: 700; }
