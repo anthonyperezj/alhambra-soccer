@@ -352,6 +352,8 @@ const forfeitStubs = (div, out = withdrawnIn(div), matches = state.matches) => {
 // withdrawn team and that was picked. Games left count on the day they were scheduled.
 // "Both teams" forfeited (e.g. a fight): each team loses 3–0, nobody gets points.
 const BOTH = '__both';
+// A forfeit is 3–0, or 5–0 in futsal.
+const forfeitGoals = div => (DIVISIONS.find(d => d.id === div) || {}).group === 'futsal' ? 5 : 3;
 const doubleForfeit = m => m.forfeitBy === BOTH;
 function resultOf(m, out = withdrawnIn(m.div)) {
   // A team that couldn't play that week: 3–0 to the other team (from that day on), no goals for anyone.
@@ -359,15 +361,22 @@ function resultOf(m, out = withdrawnIn(m.div)) {
     if (m.date > todayISO()) return null;
     if (doubleForfeit(m)) return { hs: 0, as: 0, forfeit: true, double: true };
     const homeLost = m.forfeitBy === m.home;
-    return { hs: homeLost ? 0 : 3, as: homeLost ? 3 : 0, forfeit: true };
+    const fg = forfeitGoals(m.div);
+    return { hs: homeLost ? 0 : fg, as: homeLost ? fg : 0, forfeit: true };
   }
   const wh = out.some(w => w.team === m.home), wa = out.some(w => w.team === m.away);
   if (wh !== wa) {
     const o = wOpts(out.find(w => w.team === (wh ? m.home : m.away)));
     if (m.left ? o.forfeitLeft && m.date <= todayISO() : played(m) && o.forfeitPlayed) {
-      return { hs: wh ? 0 : 3, as: wh ? 3 : 0, forfeit: true };
+      const fg = forfeitGoals(m.div);
+      return { hs: wh ? 0 : fg, as: wh ? fg : 0, forfeit: true };
     }
     if (o.wipePlayed) return null;
+  }
+  // Played, but it counts as a forfeit: the real score stays on the game card, the forfeit counts.
+  if (m.forfeitPlayed && played(m) && !m.left && [m.home, m.away].includes(m.forfeitPlayed)) {
+    const fg = forfeitGoals(m.div), hl = m.forfeitPlayed === m.home;
+    return { hs: hl ? 0 : fg, as: hl ? fg : 0, forfeit: true, real: { hs: m.hs, as: m.as } };
   }
   return played(m) && !m.left ? { hs: m.hs, as: m.as } : null;
 }
@@ -676,7 +685,7 @@ function standings(div, matches = state.matches, teams = state.teams[div], out =
   [...matches.filter(m => m.div === div && !m.playoff), ...forfeitStubs(div, out, matches)].sort(byDateTime).forEach(game => {
     // A team that forfeited keeps its 0–3 loss when a replacement team plays its game.
     const fg = game.filler && game.filler.regular && game.filler.gone;
-    if (fg && game.date <= todayISO() && !gone.has(fg) && (teams || []).includes(fg)) { const g = row(fg); g.p++; g.l++; g.ga += 3; g.form.push('L'); }
+    if (fg && game.date <= todayISO() && !gone.has(fg) && (teams || []).includes(fg)) { const g = row(fg); g.p++; g.l++; g.ga += forfeitGoals(div); g.form.push('L'); }
     const r = resultOf(game, out);
     if (!r) return;
     const m = { ...game, ...r };
@@ -685,7 +694,7 @@ function standings(div, matches = state.matches, teams = state.teams[div], out =
     const counts = m.fillerCounts || fillsForForfeit(game, matches), skip = forfeitSwap(game, matches) ? forfeitWinner(game) : '';
     const h = (m.fillerTeam === m.home && !counts) || skip === m.home ? guest() : row(m.home), a = (m.fillerTeam === m.away && !counts) || skip === m.away ? guest() : row(m.away);
     h.p++; a.p++;
-    if (m.double) { h.l++; a.l++; h.ga += 3; a.ga += 3; h.form.push('L'); a.form.push('L'); return; }
+    if (m.double) { h.l++; a.l++; h.ga += forfeitGoals(div); a.ga += forfeitGoals(div); h.form.push('L'); a.form.push('L'); return; }
     h.gf += m.hs; h.ga += m.as; a.gf += m.as; a.ga += m.hs;
     if (m.hs > m.as) { h.w++; a.l++; h.form.push('W'); a.form.push('L'); }
     else if (m.hs < m.as) { a.w++; h.l++; a.form.push('W'); h.form.push('L'); }
@@ -1435,14 +1444,14 @@ function matchCard(game, showDiv) {
       ${showDiv ? `<span class="tag">${esc(divName(m.div))}</span>` : ''}
       ${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}
       ${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.countOnly ? `<span class="tag filler-tag">${esc(countOnlyTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
-      ${m.double ? `<span class="tag forfeit">${t('doubleForfeit')}</span>` : m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
+      ${m.double ? `<span class="tag forfeit">${t('doubleForfeit')}</span>` : m.real ? `<span class="tag forfeit">${esc(t('forfeitPlayedTag').replace('{w}', m.hs > m.as ? m.home : m.away))}</span>` : m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
       <span>${tbd ? t('newDateTbd') : m.left ? fmtDate(m.date) : `${fmtDate(playedDate(m))}${shownTime(m) ? ` · ${esc(shownTime(m))}` : ''}`}</span>
       ${tbd || m.left ? '' : `<span class="field-name">${esc(shownField(m))}</span>`}
     </div>
     <div class="match-body">
       <span class="team home ${hw ? 'win' : ''}"><span class="team-in"><span class="tn">${esc(m.home)}</span>${publicLogo(m.home, false, m.div)}</span></span>
       ${m.double ? `<span class="score double-ff" title="${t('bothLose30')}"><b>L</b><i>–</i><b>L</b></span>` : done
-        ? `<span class="score"><b>${m.hs}</b><i>–</i><b>${m.as}</b>${m.pens ? `<small class="pens">${t('pensShort')} ${m.pens[0]}–${m.pens[1]}</small>` : ''}</span>`
+        ? `<span class="score"><b>${m.real ? m.real.hs : m.hs}</b><i>–</i><b>${m.real ? m.real.as : m.as}</b>${m.pens ? `<small class="pens">${t('pensShort')} ${m.pens[0]}–${m.pens[1]}</small>` : ''}</span>`
         : `<span class="score pending">${tbd ? 'TBD' : t('vs')}</span>`}
       <span class="team away ${aw ? 'win' : ''}"><span class="team-in">${publicLogo(m.away, false, m.div)}<span class="tn">${esc(m.away)}</span></span></span>
     </div>
@@ -3803,7 +3812,7 @@ function pageAdminTeamGames() {
   const plan = rotationPlan(div, team, toPlay);
   const result = m => {
     const r = resultOf(m);
-    const mine = r.double ? 0 : m.home === team ? r.hs : r.as, theirs = r.double ? 3 : m.home === team ? r.as : r.hs;
+    const mine = r.double ? 0 : m.home === team ? r.hs : r.as, theirs = r.double ? forfeitGoals(m.div) : m.home === team ? r.as : r.hs;
     const k = mine > theirs ? 'W' : mine < theirs ? 'L' : 'D';
     return `<span class="form"><i class="f-${k}">${k === 'W' ? t('won') : k === 'D' ? t('drawn') : t('lost')}</i></span> <b>${mine}–${theirs}</b>${r.forfeit ? ` <span class="tag forfeit">${t('forfeit')}</span>` : ''}`;
   };
@@ -4127,6 +4136,9 @@ function editGameHTML(m) {
       ${m.filler && !m.countOnly && (state.teams[m.div] || []).includes(m.fillerTeam) ? `<div class="field counts-for">${t('countsForLabel')}
         <span class="day-checks"><label class="check-pill"><input type="checkbox" checked disabled><span>${esc(m.home === m.fillerTeam ? m.away : m.home)}</span></label><label class="check-pill"><input type="checkbox" name="ecount_filler" ${m.fillerCounts ? 'checked' : ''}><span>${esc(m.fillerTeam)} (${t('fillerTag').toLowerCase()})</span></label></span>
         <small class="muted">${t('fillerCountsHelp')}</small></div>` : ''}
+      ${m.forfeitBy || m.playoff || m.fromFriendly || m.filler ? '' : `<label class="field">${t('forfeitPlayedLabel')}
+        <select class="select" name="eforfeit"><option value="">${t('forfeitPlayedNone')}</option>${[m.away, m.home].map(l => `<option value="${esc(l)}" ${m.forfeitPlayed === l ? 'selected' : ''}>${esc(t('forfeitPlayedOpt').replace('{w}', l === m.home ? m.away : m.home).replace('{l}', l))}</option>`).join('')}</select>
+        <small class="muted">${t('forfeitPlayedHelp')}</small></label>`}
       <p class="warn" hidden></p>
       <div class="edit-actions">
         <button type="button" class="btn btn-sm btn-outline" data-action="cancel-edit-game">${t('cancel')}</button>
@@ -4164,14 +4176,19 @@ function saveEditGame(form) {
   const countsWas = !!m.fillerCounts;
   if (cf) { if (cf.checked) m.fillerCounts = true; else delete m.fillerCounts; if (countsWas !== cf.checked) touch(m.div); }
   const wasOnly = m.countOnly ? m.fillerTeam : '';
+  // Counts as a forfeit (the side picked is the team that forfeited; it follows that side if teams change)
+  const ef = form.querySelector('[name=eforfeit]');
+  const ffWas = m.forfeitPlayed || '';
+  const ffNow = ef && ef.value ? (ef.value === m.home ? home : away) : '';
   Object.assign(m, { home, away, time: fromMin(start), field });
+  if (ef) { if (ffNow) m.forfeitPlayed = ffNow; else delete m.forfeitPlayed; if (ffNow !== ffWas) touch(m.div); }
   if (ch && ca) {
     const out = !ch.checked ? home : !ca.checked ? away : '';
     if (out) { m.fillerTeam = out; m.countOnly = true; } else if (m.countOnly) { delete m.fillerTeam; delete m.countOnly; }
     if ((out || '') !== wasOnly) touch(m.div);
   }
   const clashes = findConflicts({ date: m.date, start, field, div: m.div, teams: [home, away], ignore: m.id });
-  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}${m.countOnly ? ` · ${countOnlyTag(m)}` : ''}${cf && countsWas !== cf.checked ? ` · ${t(cf.checked ? 'friendlyNowCounts' : 'friendlyNoLongerCounts')} ${m.fillerTeam}` : ''}`);
+  logAction(`${t('logGameEdited')} · ${divName(m.div)}: ${home} ${t('vs')} ${away} · ${fmtDate(m.date)} ${m.time} · ${FIELDS[field]}${m.countOnly ? ` · ${countOnlyTag(m)}` : ''}${m.forfeitPlayed ? ` · ${t('forfeitPlayedTag').replace('{w}', m.forfeitPlayed === home ? away : home)}` : ''}${cf && countsWas !== cf.checked ? ` · ${t(cf.checked ? 'friendlyNowCounts' : 'friendlyNoLongerCounts')} ${m.fillerTeam}` : ''}`);
   ui.editGame = null;
   save(); render();
   return toast(clashes.length
@@ -9417,6 +9434,14 @@ document.addEventListener('click', e => {
 window.addEventListener('hashchange', () => { ui.menuOpen = false; ui.adminMenuOpen = false; render(); window.scrollTo(0, 0); });
 
 setLang(LANG);
+// Futsal forfeits are 5–0: the wording follows the division being looked at.
+const tBase = t;
+t = key => {
+  const s = tBase(key);
+  if (typeof s !== 'string' || !/[35]–0|0–3/.test(s)) return s;
+  const div = location.hash.startsWith('#/admin') ? ui.adminDiv : ui.div;
+  return forfeitGoals(div) === 5 ? s.replace(/3–0/g, '5–0').replace(/0–3/g, '0–5') : s;
+};
 // One-time data upgrades. They run on the published site only, so working on a copy here never changes the
 // league's data before it's published. (The test copy can run them by hand: upgradeGoalCols().)
 const LIVE_SITE = /(^|\.)alhambrasoccer\.com$|\.github\.io$/.test(location.hostname);
