@@ -1895,5 +1895,5 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .scorer-img { --sirank: min(2.5em, calc(var(--row) * .8)); --silogow: calc(var(--silogo) * .82); }
 .scorer-img .si-head, .scorer-img .si-row { gap: .5em; padding-left: .45em; }
 .scorer-img .si-logo { width: var(--silogow); }
-/* Admin on computers: the pages use more of a wide screen, so team names in Enter Scores fit on one line */
-@media (min-width: 1180px) { .admin { max-width: 1600px; } }
+/* Enter Scores on computers: the page uses more of a wide screen, so team names in Enter Scores fit on one line */
+@media (min-width: 1180px) { .admin.admin-scores { max-width: 1600px; } }

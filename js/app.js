@@ -3338,7 +3338,7 @@ function adminShell(active, body) {
   ];
   // On a phone or tablet the list drops down from the ☰ in the black header, like the public site's menu.
   return `
-  <div class="admin">
+  <div class="admin ${active.replace(/\//g, '-')}">
     <aside class="admin-nav ${ui.adminMenuOpen ? 'open' : ''}">
       ${groups.map(([g, l]) => `<p class="nav-group">${t(g)}</p>${l.map(([r, k]) => `<a href="#/${r}" class="${r === active ? 'active' : ''}">${navTitle(t(k))}</a>`).join('')}`).join('')}
 
