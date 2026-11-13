@@ -9427,6 +9427,15 @@ function upgradeNameCase() {
   state.scorers.forEach(s => { if (!s.own) { const n = nameCase(s.name); if (n !== s.name) { s.name = n; changed = true; } } });
   return changed;
 }
-function runUpgrades() { if (!LIVE_SITE) return false; const a = upgradeGoalCols(), b = upgradeNameCase(); return a || b; }
+// The capital-letters change runs once per page load (with an admin signed in), so a page left open on an
+// older version can't keep changing the names back and forth with this one.
+let namesUpgraded = false;
+function runUpgrades(fromCloud) {
+  if (!LIVE_SITE) return false;
+  const a = upgradeGoalCols();
+  let b = false;
+  if (fromCloud && CLOUD.user && !namesUpgraded) { namesUpgraded = true; b = upgradeNameCase(); }
+  return a || b;
+}
 runUpgrades();
 render();

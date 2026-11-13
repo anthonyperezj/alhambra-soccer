@@ -265,7 +265,7 @@ function applyCloud(parts) {
   if (mine && CLOUD.user) setTimeout(() => cloudPush(), 400);
   state = addSeasons(next);
   // a one-time upgrade of the data (see runUpgrades) is saved online by the first admin signed in
-  if (runUpgrades() && CLOUD.user) setTimeout(() => save(), 1500);
+  if (runUpgrades(true) && CLOUD.user) setTimeout(() => save(), 1500);
   CLOUD.upgraded = CLOUD.upgraded || state.scorerCols === 'league' && !('scorerCols' in parts);
   for (let i = DIVISIONS.length - 1; i >= 0; i--) if (DIVISIONS[i].custom) DIVISIONS.splice(i, 1);
   (state.leagues || []).forEach(addDivision);
@@ -276,7 +276,7 @@ function applyCloud(parts) {
 }
 
 // While an admin is typing in a box, an update from someone else waits until they leave it.
-const typing = () => ui.admin && document.activeElement && document.activeElement.matches('#app input, #app textarea');
+const typing = () => ui.admin && document.activeElement && document.activeElement.matches('#app input, #app textarea, #app select');
 function applyWhenFree(parts) {
   CLOUD.waiting = parts;
   if (typing()) return setTimeout(() => CLOUD.waiting === parts && applyWhenFree(parts), 1200);
