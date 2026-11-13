@@ -5978,14 +5978,14 @@ function scorerImageHTML(div) {
   const used = tableUsed(div, 'scorers');
   const fixed = o.height > 0 ? `height:${o.height}px;` : '';
   // columns: rank · player · goals (a typed width wins; otherwise the player takes the room)
-  const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : '2.4em'} ` : ''}${on('team') ? 'var(--silogo) ' : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
+  const grid = `${on('rank') ? `${w.rank > 0 ? `${w.rank}px` : 'var(--sirank)'} ` : ''}${on('team') ? 'var(--silogow) ' : ''}${w.name > 0 ? `${w.name}px` : 'minmax(0,1fr)'} ${w.goals > 0 ? `${w.goals}px` : w.name > 0 ? '1fr' : 'auto'}`;
   return `<div class="table-img scorer-img ${fixed ? 'fixed' : ''} ${used.fit ? 'fit' : ''} ${o.bold ? 'bold' : ''}" style="width:${o.width}px;${fixed}padding-bottom:${o.spaceBelow}px;font-size:${used.font}px;--row:${used.rowH}px;--head:${used.headH}px;--logo:${used.logo}px;--gap:${SCORER_GAP}px;--grid:${grid};${imgLookVars(o, used)}">
     ${o.headerRow ? `<div class="si-head">${on('rank') ? '<span class="si-rank">#</span>' : ''}${on('team') ? '<span></span>' : ''}<span>${t('player')}</span><span class="si-goals">${t('goalsWord')}</span></div>` : ''}
     ${rows.map((sc, i) => {
       const r = i + 1, logo = on('logo') && teamLogo(sc.team, div);
       return `<div class="si-row ${r <= 3 ? `si-p${r}` : ''}">
         ${on('rank') ? `<span class="si-rank"><b>${r}</b></span>` : ''}
-        ${on('team') ? `<span class="si-logo">${logo ? `<img src="${logo}" alt="">` : ''}</span>` : ''}<span class="si-who"><strong>${esc(sc.name)}</strong>${on('team') ? `<small>${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
+        ${on('team') ? `<span class="si-logo">${logo ? `<img src="${logo}" alt="">` : ''}</span>` : ''}<span class="si-who"><strong>${esc(sc.own ? sc.name : nameCase(sc.name))}</strong>${on('team') ? `<small>${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
         <span class="si-goals">${sc.goals}</span></div>`;
     }).join('')}
     ${o.bottomRow ? '<div class="si-bottom"></div>' : ''}</div>`;

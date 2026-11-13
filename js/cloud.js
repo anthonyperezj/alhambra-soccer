@@ -354,12 +354,53 @@ function pushAll() {
 const saveHere = save;
 save = function () {
   saveHere();
-  if (!CLOUD.on || !CLOUD.user || !CLOUD.ready) return;
+  if (!CLOUD.on || !CLOUD.user || !CLOUD.ready || runaway()) return;
   notePending(PENDING, cloudParts(), CLOUD.synced);
   if (CLOUD.privReady) notePending(PENDING_PRIVATE, privateParts(), CLOUD.privSynced);
   clearTimeout(CLOUD.timer);
   CLOUD.timer = setTimeout(() => { cloudPush(); pushPrivate(); }, 400);
 };
+// Signs that someone is using this page: a click, a key, scrolling or a touch.
+let lastUse = Date.now();
+['pointerdown', 'keydown', 'wheel', 'touchstart', 'input'].forEach(ev => window.addEventListener(ev, () => { lastUse = Date.now(); runSaves = []; }, { capture: true, passive: true }));
+const idleFor = ms => Date.now() - lastUse >= ms;
+
+// A page that keeps saving on its own with nobody using it (like two pages left open on different versions
+// undoing each other's changes) stops: it reloads once to get the newest site, and if it still keeps going,
+// it stops sending saves until someone uses it again.
+let runSaves = [];
+function runaway() {
+  if (!idleFor(15000)) return false;
+  const now = Date.now();
+  runSaves = runSaves.filter(x => now - x < 120000);
+  runSaves.push(now);
+  if (runSaves.length < 5) return false;
+  let last = 0;
+  try { last = +sessionStorage.getItem('asl-loop-reload') || 0; } catch (e) {}
+  if (now - last > 30 * 60000) {
+    try { sessionStorage.setItem('asl-loop-reload', String(now)); } catch (e) {}
+    clearTimeout(CLOUD.timer); CLOUD.timer = null;
+    location.reload();
+  }
+  return true;
+}
+
+// Every 10 minutes the page checks whether a newer version of the site was published. If so, it reloads
+// itself, but only after 10 minutes with no sign of anyone using it (and never while a box is in use).
+const MY_VERSION = +((document.querySelector('script[src*="app.js?v="]') || {}).src || '').split('v=')[1] || 0;
+let newerOut = false;
+async function checkVersion() {
+  if (!newerOut) {
+    try {
+      const html = await (await fetch(`./?nocache=${Date.now()}`, { cache: 'no-store' })).text();
+      const m = html.match(/app\.js\?v=(\d+)/);
+      newerOut = !!m && +m[1] > MY_VERSION;
+    } catch (e) { return; }
+  }
+  if (newerOut && idleFor(10 * 60000) && !typing()) location.reload();
+}
+setInterval(checkVersion, 10 * 60000);
+
 window.addEventListener('beforeunload', e => {
   if (CLOUD.timer && CLOUD.user) { clearTimeout(CLOUD.timer); cloudPush(); pushPrivate(); }
 });

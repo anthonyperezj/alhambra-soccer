@@ -1890,3 +1890,8 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .scorer-img .si-row .si-rank b { font-weight: 700; width: min(2em, calc(var(--row) * .8 / 1.25)); height: min(2em, calc(var(--row) * .8 / 1.25)); }
 .scorer-img .si-row:not(.si-p1):not(.si-p2):not(.si-p3) .si-rank b { background: #000; color: #fff; }
 .scorer-img .si-row .si-goals { font-weight: 700; }
+/* Goleadores picture: rank column only as wide as its circle and close to the left edge, a narrower logo
+   column, and the room that frees up goes to the player and team names */
+.scorer-img { --sirank: min(2.5em, calc(var(--row) * .8)); --silogow: calc(var(--silogo) * .82); }
+.scorer-img .si-head, .scorer-img .si-row { gap: .5em; padding-left: .45em; }
+.scorer-img .si-logo { width: var(--silogow); }
