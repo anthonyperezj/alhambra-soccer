@@ -1897,3 +1897,9 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .scorer-img .si-logo { width: var(--silogow); }
 /* Enter Scores on computers: the page uses more of a wide screen, so team names in Enter Scores fit on one line */
 @media (min-width: 1180px) { .admin.admin-scores { max-width: 1600px; } }
+/* Goleadores picture: rank digits sat 1px low in their circles; goals share one center line (a "7" or "1"
+   no longer looks out of line with "11") */
+.scorer-img .si-row .si-rank b > span { position: relative; top: -.0375em; }
+.scorer-img .si-goals, .scorer-img .si-row .si-goals { text-align: center; }
+/* The picture maker stretches an image to its box (it ignores object-fit), so the logo box keeps the logo's own shape */
+.scorer-img .si-logo img { width: auto; height: auto; max-width: 100%; max-height: 100%; }

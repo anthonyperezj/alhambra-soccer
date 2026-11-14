@@ -6008,7 +6008,7 @@ function scorerImageHTML(div) {
     ${rows.map((sc, i) => {
       const r = i + 1, logo = on('logo') && teamLogo(sc.team, div);
       return `<div class="si-row ${r <= 3 ? `si-p${r}` : ''}">
-        ${on('rank') ? `<span class="si-rank"><b>${r}</b></span>` : ''}
+        ${on('rank') ? `<span class="si-rank"><b><span>${r}</span></b></span>` : ''}
         ${on('team') ? `<span class="si-logo">${logo ? `<img src="${logo}" alt="">` : ''}</span>` : ''}<span class="si-who"><strong>${esc(sc.own ? sc.name : nameCase(sc.name))}</strong>${on('team') ? `<small>${esc(sc.team)}</small>` : ''}${on('bar') ? `<span class="si-bar"><span style="width:${Math.round(sc.goals / max * 100)}%"></span></span>` : ''}</span>
         <span class="si-goals">${sc.goals}</span></div>`;
     }).join('')}
