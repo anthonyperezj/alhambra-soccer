@@ -1903,3 +1903,9 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .scorer-img .si-goals, .scorer-img .si-row .si-goals { text-align: center; }
 /* The picture maker stretches an image to its box (it ignores object-fit), so the logo box keeps the logo's own shape */
 .scorer-img .si-logo img { width: auto; height: auto; max-width: 100%; max-height: 100%; }
+.score-pick-games { margin: 4px 0 10px; }
+.games-drop > summary { list-style: none; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+.games-drop > summary::-webkit-details-marker { display: none; }
+.games-drop > summary::before { content: '▸'; display: inline-block; transition: transform .15s; }
+.games-drop[open] > summary::before { transform: rotate(90deg); }
+.games-drop > .day-checks { margin-top: 8px; }

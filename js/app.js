@@ -5093,6 +5093,8 @@ function bookFiller(form) {
     Object.assign(m, { time: fromMin(start), field, home: team, away: name, fillerTeam: name, hs: null, as: null });
     delete m.forfeitBy; delete m.forfeitFrom;
   }
+  // a league team that steps in gets the game counted for it by default (uncheck it in Edit)
+  if ((state.teams[div] || []).includes(name)) m.fillerCounts = true;
   ui.fillerFor = null;
   touch(m.div);
   logAction(`${t('fillerBooked')} · ${divName(m.div)} · ${fmtDate(m.date)}: ${team} ${t('vs')} ${name} (${t('insteadOf')} ${loser})`);
@@ -5129,7 +5131,7 @@ function editFiller(form, m) {
   if (m.home === m.fillerTeam) m.home = name; else m.away = name;
   Object.assign(m, { fillerTeam: name, time: fromMin(start), field });
   // a league team playing as the replacement can have the game count for it too
-  const counts = !!(form.counts && form.counts.checked && (state.teams[m.div] || []).includes(name));
+  const counts = !!((form.counts ? form.counts.checked : true) && (state.teams[m.div] || []).includes(name));
   const countsBefore = !!m.fillerCounts;
   if (counts) m.fillerCounts = true; else delete m.fillerCounts;
   ui.fillerFor = null;
@@ -6023,8 +6025,12 @@ function scoreDays(div) {
 const unplayedForfeit = m => { const r = resultOf(m); return !!(r && r.forfeit && !r.real); };
 const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
   .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m) && !swappedForfeit(m) && !unplayedForfeit(m)).sort(byDateTime);
+// Games unticked in "Games in the picture" stay out of it (only on this screen, until the page reloads).
+const scoreGameKey = m => `${m.id}|${m.home}|${m.away}`;
+const scoreHidden = (div, date) => ((ui.scoreHide = ui.scoreHide || {})[`${div}|${date}`] = ui.scoreHide[`${div}|${date}`] || []);
+const shownScoreGames = (div, date) => { const off = scoreHidden(div, date); return scoreDayGames(div, date).filter(m => !off.includes(scoreGameKey(m))); };
 function scoresImageHTML(div, date) {
-  const o = imgSet('scores', div), games = scoreDayGames(div, date);
+  const o = imgSet('scores', div), games = shownScoreGames(div, date);
   const two = games.length > 6;
   // a row is logo 1 · score .92 · vs 1.02 · score .92 · logo 1; text and gaps follow the row's size
   const colW = o.rowWidth, H = o.rowHeight;
@@ -6078,7 +6084,8 @@ const hexField = (o, k) => `<label class="field">${t(`ti_${k}`)}<span class="hex
 function pageScoresImage() {
   const div = ui.adminDiv, o = imgSet('scores', div), days = scoreDays(div);
   if (!days.includes(ui.tiDate)) ui.tiDate = days[0];
-  const date = ui.tiDate, n = date ? scoreDayGames(div, date).length : 0;
+  const date = ui.tiDate, n = date ? shownScoreGames(div, date).length : 0;
+  const dayGames = date ? scoreDayGames(div, date) : [], off = date ? scoreHidden(div, date) : [];
   const inch = o.unit === 'in', show = px => (inch ? +(px / 96).toFixed(2) : Math.round(px));
   return adminShell('admin/table', `
     <h1 class="page-title">${t('tableImage')}</h1>
@@ -6093,6 +6100,9 @@ function pageScoresImage() {
         <label class="field">${t('ti_logoPct')}<span class="len-input"><input class="input" type="number" min="20" max="100" step="1" value="${o.logoPct || 84}" data-change="ti-pct" data-k="logoPct"> %</span></label>
         ${hexField(o, 'scoreFill')}${hexField(o, 'scoreColor')}
       </div>
+      ${dayGames.length ? `<div class="score-pick-games">
+        <details class="games-drop" ${ui.tiGamesOpen ? 'open' : ''}><summary>${t('gamesInPicture')} <span class="muted">(${t('gamesShownOf').replace('{n}', n).replace('{t}', dayGames.length)})</span></summary>
+        <span class="day-checks">${dayGames.map(m => { const r = resultOf(m); return `<label class="check-pill"><input type="checkbox" data-change="ti-game" data-key="${esc(scoreGameKey(m))}" ${off.includes(scoreGameKey(m)) ? '' : 'checked'}><span>${esc(m.home)} ${r.double ? 'L' : r.hs}–${r.double ? 'L' : r.as} ${esc(m.away)}</span></label>`; }).join('')}</span></details></div>` : ''}
       <p class="note">${t('ti_perDiv').replace('{div}', divName(div)).replace(/^./, x => x.toUpperCase())}. ${t(n > 6 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(n > 6 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
       <div class="row-actions">
         <button type="button" class="btn btn-gold" data-action="export-card" data-what="scoresImg" data-as="png" data-pdiv="${div}" ${n ? '' : 'disabled'}>${t('saveScoresImage')}</button>
@@ -9081,6 +9091,12 @@ document.addEventListener('change', e => {
     save(); return render();
   }
   if (e.target.dataset.change === 'ti-date') { ui.tiDate = e.target.value; return render(); }
+  if (e.target.dataset.change === 'ti-game') {
+    const off = scoreHidden(ui.adminDiv, ui.tiDate), k = e.target.dataset.key, i = off.indexOf(k);
+    if (e.target.checked && i >= 0) off.splice(i, 1); else if (!e.target.checked && i < 0) off.push(k);
+    ui.tiGamesOpen = true;
+    return render();
+  }
   if (e.target.dataset.change === 'hp-text' || e.target.dataset.change === 'hp-link') {
     const k = e.target.dataset.k, v = e.target.value.trim(), hpData = clone(state.homePage || {});
     const part = e.target.dataset.change === 'hp-link' ? 'links' : LANG;
