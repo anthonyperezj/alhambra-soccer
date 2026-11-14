@@ -3339,7 +3339,7 @@ const navTitle = txt => (LANG === 'es' ? txt : txt.split(' ').map((w, i) => (i &
 function adminShell(active, body) {
   // Grouped by how often they're used: every week, during the season, then setup.
   const groups = [
-    ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards'], ['admin/agechecks', 'ageChecks']]],
+    ['navWeekly', [['admin', 'dashboard'], ['admin/scores', 'enterScores'], ['admin/schedule', 'scheduleBuilder'], ['admin/sheet', 'scheduleSheet'], ['admin/scorers', 'manageScorers'], ['admin/redcards', 'redCards'], ['admin/agechecks', 'ageChecks'], ['admin/reports', 'reportsNav']]],
     ['navSeason', [['admin/teamgames', 'teamGames'], ['admin/teams', 'teams'], ['admin/rotation', 'rotation'], ['admin/playoffs', 'playoffs'], ['admin/tournaments', 'tournaments'], ['admin/seasons', 'seasons']]],
     ['navSetup', [['admin/fields', 'fields'], ['admin/settings', 'settings'], ['admin/history', 'history'], ['admin/table', 'tableImage'], ['admin/regpage', 'regPageButtons'], ['admin/homepage', 'homePageNav']]],
   ];
@@ -3560,6 +3560,63 @@ function awaitingByDivision(list) {
           </a>`).join('')}</div>`).join('')}
     </section>`;
   }).join('');
+}
+
+// Reports: the games that have notes (Referee report / Our notes from Enter scores), by division and game day.
+// Youth shows every youth division at once, each in its own section like the dashboard.
+const hasReport = m => !!(m.refReport || m.adminNotes);
+function reportsPicker(active) {
+  const shown = d => !isTour(d);
+  const btn = d => `<button class="pill ${d.id === active ? 'active' : ''}" data-rep-div="${d.id}">${esc(divName(d.id))}</button>`;
+  const futsal = DIVISIONS.filter(d => d.group === 'futsal' && shown(d)), cur = futsal.find(d => d.id === active);
+  return `<div class="picker">
+    ${DIVISIONS.filter(d => d.group === 'adult' && shown(d)).map(btn).join('')}
+    <button class="pill ${active === 'youth' ? 'active' : ''}" data-rep-div="youth">${t('youth')}</button>
+    ${futsal.length ? `<details class="dd"><summary class="pill ${cur ? 'active' : ''}">${t('futsal')}${cur ? ' · ' + esc(divName(cur.id).replace(/^Futsal /, '')) : ''} <span class="caret">▾</span></summary>
+      <div class="dd-menu"><p class="dd-title">${t('futsalDivisions')}</p><div class="dd-grid futsal">${futsal.map(btn).join('')}</div></div></details>` : ''}
+  </div>`;
+}
+function pageAdminReports() {
+  if (!ui.repDiv || (ui.repDiv !== 'youth' && !DIVISIONS.some(d => d.id === ui.repDiv))) ui.repDiv = 'youth';
+  const youth = DIVISIONS.filter(d => d.group === 'youth' && !isTour(d)).map(d => d.id);
+  if (!youth.includes(ui.repYouthDiv)) ui.repYouthDiv = '';
+  const divs = ui.repDiv === 'youth' ? (ui.repYouthDiv ? [ui.repYouthDiv] : youth) : [ui.repDiv];
+  const all = state.matches.filter(m => divs.includes(m.div) && hasReport(m));
+  const days = [...new Set(all.map(m => m.date))].sort().reverse();
+  if (ui.repDay !== 'all' && !days.includes(ui.repDay)) ui.repDay = days[0] || 'all'; // the most recent game day first
+  // "Game 10 · Sun, Nov 8, 2026": youth divisions usually share the number; if not, all of them show (10/9)
+  const dayLabel = d => { const nums = [...new Set(all.filter(m => m.date === d && !m.playoff).map(m => gameNumber(m.div, d)))].sort((x, y) => x - y);
+    return `${nums.length ? `${t('game')} ${nums.join('/')} · ` : all.some(m => m.date === d && m.playoff) ? `${t('playoffs')} · ` : ''}${fmtDate(d, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}`; };
+  const list = all.filter(m => ui.repDay === 'all' || m.date === ui.repDay);
+  const when = iso => new Date(iso).toLocaleString(LANG === 'es' ? 'es-MX' : 'en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const card = m => { const r = resultOf(m); return `<div class="card report-card">
+      <p class="rep-game"><b>${esc(m.home)}</b> ${r ? `${r.double ? 'L' : r.hs}–${r.double ? 'L' : r.as}` : t('vs')} <b>${esc(m.away)}</b>
+        <span class="muted">· ${esc(shownTime(m) || m.time)} · ${esc(shownField(m))}</span></p>
+      ${m.refReport ? `<div class="rep-block"><span class="rep-label">${t('refReport')}</span><p>${esc(m.refReport)}</p></div>` : ''}
+      ${m.adminNotes ? `<div class="rep-block"><span class="rep-label">${t('ourNotes')}</span><p>${esc(m.adminNotes)}</p></div>` : ''}
+      <div class="rep-foot"><span class="muted small">${m.notesAt ? `${t('lastSaved')} ${when(m.notesAt)}` : ''}</span>
+        <button type="button" class="btn btn-sm btn-outline" data-action="rep-open" data-id="${m.id}">${t('repEdit')}</button></div>
+    </div>`; };
+  const sections = divs.map(div => {
+    const games = list.filter(m => m.div === div).sort(byDateTime).reverse();
+    if (!games.length) return '';
+    return `<section class="await-group">
+      <h3 class="await-head"><span>${esc(divName(div))}</span><span class="muted">${games.length === 1 ? t('repOne') : t('repMany').replace('{n}', games.length)}</span></h3>
+      ${[...groupBy(games, m => m.date)].map(([date, gs]) => `
+        <p class="await-day"><b>${gs[0].playoff ? playoffDay(div, date) || t('playoffs') : `${t('game')} ${gameNumber(div, date)}`}</b> · ${fmtDate(date, { weekday: 'long', month: 'short', day: 'numeric' })}</p>
+        <div class="stack">${gs.map(card).join('')}</div>`).join('')}
+    </section>`;
+  }).join('');
+  return adminShell('admin/reports', `
+    <h1 class="page-title">${t('reportsNav')}</h1>
+    <p class="note">${t('repHelp')}</p>
+    <div class="toolbar">${reportsPicker(ui.repDiv)}</div>
+    ${days.length || ui.repDiv === 'youth' ? `<div class="toolbar rep-filters">${ui.repDiv === 'youth' ? `<select class="select" data-change="rep-youth" aria-label="${t('division')}">
+      <option value="">${t('repAllYouth')}</option>${youth.map(d => `<option value="${d}" ${d === ui.repYouthDiv ? 'selected' : ''}>${esc(divName(d))}</option>`).join('')}</select>` : ''}
+      ${days.length ? `<select class="select" data-change="rep-day" aria-label="${t('gameDay')}">
+      <option value="all" ${ui.repDay === 'all' ? 'selected' : ''}>${t('repAllDays')} (${all.length})</option>
+      ${days.map(d => `<option value="${d}" ${d === ui.repDay ? 'selected' : ''}>${esc(dayLabel(d))} (${all.filter(m => m.date === d).length})</option>`).join('')}</select>` : ''}</div>` : ''}
+    ${sections || empty(t('repNone'))}`);
 }
 
 function pageAdminDash() {
@@ -7682,7 +7739,7 @@ const ROUTES = {
   admin: pageAdminDash, 'admin/scores': pageAdminScores, 'admin/scorers': pageAdminScorers,
   'admin/schedule': pageAdminSchedule, 'admin/teams': pageAdminTeams, 'admin/seasons': pageAdminSeasons, 'admin/fields': pageAdminFields,
   'admin/settings': pageAdminSettings, 'admin/history': pageAdminHistory, 'admin/redcards': pageAdminRedCards,
-  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/homepage': pageAdminHome, 'admin/agechecks': pageAdminAgeChecks, 'admin/matchups': pageAdminTeamGames,
+  'admin/teamgames': pageAdminTeamGames, 'admin/rotation': pageAdminRotation, 'admin/tournaments': pageAdminTournaments, 'admin/playoffs': pageAdminPlayoffs, 'admin/sheet': pageAdminSheet, 'admin/table': pageAdminTable, 'admin/regpage': pageAdminRegister, 'admin/homepage': pageAdminHome, 'admin/agechecks': pageAdminAgeChecks, 'admin/reports': pageAdminReports, 'admin/matchups': pageAdminTeamGames,
   archive: pageArchive,
 };
 
@@ -7783,7 +7840,7 @@ document.addEventListener('click', e => {
 document.addEventListener('click', e => {
   const jump = e.target.closest('[data-scroll]');
   if (jump) { e.preventDefault(); document.getElementById(jump.dataset.scroll).scrollIntoView({ behavior: 'smooth' }); return; }
-  const el = e.target.closest('[data-action],[data-lang],[data-div],[data-admin-div],[data-filter],[data-rc-div],[data-pa-div]');
+  const el = e.target.closest('[data-action],[data-lang],[data-div],[data-admin-div],[data-filter],[data-rc-div],[data-pa-div],[data-rep-div]');
   if (!el) return;
 
   if (el.dataset.lang) { setLang(el.dataset.lang); return render(); }
@@ -7799,6 +7856,7 @@ document.addEventListener('click', e => {
   }
   if (el.dataset.filter) { ui.adminFilter = el.dataset.filter; return render(); }
   if (el.dataset.paDiv !== undefined) { ui.paFilter = el.dataset.paDiv; ui.paFinish = null; ui.paEdit = null; return render(); }
+  if (el.dataset.repDiv) { ui.repDiv = el.dataset.repDiv; ui.repDay = ''; ui.repYouthDiv = ''; const dd = el.closest('details'); if (dd) dd.open = false; return render(); }
   if (el.dataset.rcDiv !== undefined) { ui.rcDiv = el.dataset.rcDiv; ui.rcEdit = null; ui.rcTeam = ''; return render(); }
 
   const form = el.closest('form');
@@ -7985,6 +8043,13 @@ document.addEventListener('click', e => {
         form.querySelector('.league-fields').insertAdjacentHTML('beforeend', ids.map(id =>
           `<label class="check-pill"><input type="checkbox" name="fields" value="${id}" checked><span>${esc(FIELDS[id])}</span></label>`).join(''));
       });
+    }
+    case 'rep-open': {
+      const m = state.matches.find(x => x.id === +el.dataset.id);
+      if (!m) return;
+      Object.assign(ui, { adminDiv: m.div, adminScoreDay: m.date, adminFilter: 'all', adminScoreTeam: '', notesOpen: m.id, editGame: null });
+      location.hash = '#/admin/scores';
+      return;
     }
     case 'toggle-notes': ui.notesOpen = ui.notesOpen === +el.dataset.id ? null : +el.dataset.id; return render();
     case 'save-notes': {
@@ -9090,6 +9155,8 @@ document.addEventListener('change', e => {
     logAction(`${t('moveGroup')} · ${divName(div)}: ${x} → ${t('group')} ${e.target.value}`);
     save(); return render();
   }
+  if (e.target.dataset.change === 'rep-youth') { ui.repYouthDiv = e.target.value; ui.repDay = ''; return render(); }
+  if (e.target.dataset.change === 'rep-day') { ui.repDay = e.target.value; return render(); }
   if (e.target.dataset.change === 'ti-date') { ui.tiDate = e.target.value; return render(); }
   if (e.target.dataset.change === 'ti-game') {
     const off = scoreHidden(ui.adminDiv, ui.tiDate), k = e.target.dataset.key, i = off.indexOf(k);

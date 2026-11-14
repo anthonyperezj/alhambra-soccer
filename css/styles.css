@@ -1909,3 +1909,11 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 .games-drop > summary::before { content: '▸'; display: inline-block; transition: transform .15s; }
 .games-drop[open] > summary::before { transform: rotate(90deg); }
 .games-drop > .day-checks { margin-top: 8px; }
+/* Admin → Reports */
+.report-card { padding: 12px 14px; }
+.report-card .rep-game { margin: 0 0 6px; }
+.report-card .rep-block { margin-top: 8px; }
+.report-card .rep-label { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted, #666); }
+.report-card .rep-block p { margin: 2px 0 0; white-space: pre-wrap; }
+.report-card .rep-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.rep-filters { justify-content: flex-start; gap: 10px; flex-wrap: wrap; }
