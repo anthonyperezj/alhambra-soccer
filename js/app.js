@@ -671,6 +671,12 @@ function forfeitSwap(m, list = state.matches) {
   const w = forfeitWinner(m);
   return list.find(x => x !== m && x.div === m.div && x.date === m.date && x.filler && x.fillerTeam === w && !x.countOnly && !x.fromFriendly) || null;
 }
+// That forfeit isn't listed with the results (the replacement game is): it only keeps the 0–3 loss.
+const swappedForfeit = m => !!(m.forfeitBy && forfeitSwap(m));
+// On the replacement game's card: the teams whose forfeit it replaced ("UNAMITAS FC lost 3–0 (forfeit)").
+const swappedLosers = x => (x.filler && !x.countOnly && !x.fromFriendly ? [...state.matches, ...forfeitStubs(x.div)]
+  .filter(m => m.forfeitBy && !doubleForfeit(m) && m.div === x.div && m.date === x.date && forfeitWinner(m) === x.fillerTeam && m.date <= todayISO())
+  .map(m => m.forfeitBy) : []);
 const fillsForForfeit = (x, list = state.matches) => !!x.filler && !x.countOnly && !x.fromFriendly
   && list.some(m => m.forfeitBy && !doubleForfeit(m) && m.div === x.div && m.date === x.date && forfeitWinner(m) === x.fillerTeam);
 
@@ -1444,6 +1450,7 @@ function matchCard(game, showDiv) {
       ${showDiv ? `<span class="tag">${esc(divName(m.div))}</span>` : ''}
       ${m.playoff ? `<span class="tag playoff-tag">${esc(roundLabel(m.div, m.playoff))}</span>` : ''}
       ${m.fromFriendly ? `<span class="tag filler-tag">${esc(friendlyCountTag(m))}</span>` : m.countOnly ? `<span class="tag filler-tag">${esc(countOnlyTag(m))}</span>` : m.fillerTeam ? `<span class="tag filler-tag">${t('fillerTag')}</span>` : ''}
+      ${[...new Set(swappedLosers(game))].map(l => `<span class="tag forfeit">${esc(t('forfeitLostTag').replace('{t}', l))}</span>`).join('')}
       ${m.double ? `<span class="tag forfeit">${t('doubleForfeit')}</span>` : m.real ? `<span class="tag forfeit">${esc(t('forfeitPlayedTag').replace('{w}', m.hs > m.as ? m.home : m.away))}</span>` : m.forfeit ? `<span class="tag forfeit">${t('forfeit')}</span>` : postponedTag(m)}
       <span>${tbd ? t('newDateTbd') : m.left ? fmtDate(m.date) : `${fmtDate(playedDate(m))}${shownTime(m) ? ` · ${esc(shownTime(m))}` : ''}`}</span>
       ${tbd || m.left ? '' : `<span class="field-name">${esc(shownField(m))}</span>`}
@@ -1640,7 +1647,7 @@ function pageHome() {
 // Game day picker ("Game 9 · Sun, Oct 25, 2026") with ‹ › and "View all games", used on Scores and
 // admin Enter scores. `key` is the ui field that remembers the choice; it opens on the latest game day.
 // Public Scores only shows games once they have a score (postponed ones show as "to be determined").
-const shownPublicly = m => played(m) || m.postponed || (m.forfeitBy && !!resultOf(m));
+const shownPublicly = m => played(m) || m.postponed || (m.forfeitBy && !!resultOf(m) && !swappedForfeit(m));
 // Game days the picker lists: every one in admin; on the public page, only days with a game to show.
 // Game numbers always count every game day.
 // Forfeits from a withdrawn team's games left count too.
@@ -1677,7 +1684,7 @@ function teamFilter(teams) {
 
 function pageScores() {
   const teams = state.teams[ui.div] || [];
-  const list = [...state.matches.filter(shownPublicly), ...forfeitStubs(ui.div).filter(m => resultOf(m))]
+  const list = [...state.matches.filter(shownPublicly), ...forfeitStubs(ui.div).filter(m => resultOf(m) && !swappedForfeit(m))]
     .filter(m => m.div === ui.div && (!ui.team || m.home === ui.team || m.away === ui.team));
   const { day, html: picker, label: dayLabel } = gameDayPicker(ui.div, 'scoreDay', true);
   if (day !== 'all') {
@@ -6012,8 +6019,10 @@ function scoreDays(div) {
   const all = [...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.fromFriendly && resultOf(m));
   return [...new Set(all.map(m => m.date))].sort().reverse();
 }
+// The scores picture leaves out forfeits that weren't played (a played game that counts as a forfeit stays, as 3–0).
+const unplayedForfeit = m => { const r = resultOf(m); return !!(r && r.forfeit && !r.real); };
 const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
-  .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m)).sort(byDateTime);
+  .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m) && !swappedForfeit(m) && !unplayedForfeit(m)).sort(byDateTime);
 function scoresImageHTML(div, date) {
   const o = imgSet('scores', div), games = scoreDayGames(div, date);
   const two = games.length > 6;
