@@ -4200,7 +4200,7 @@ function editGameHTML(m) {
       ${m.filler && !m.countOnly && (state.teams[m.div] || []).includes(m.fillerTeam) ? `<div class="field counts-for">${t('countsForLabel')}
         <span class="day-checks"><label class="check-pill"><input type="checkbox" checked disabled><span>${esc(m.home === m.fillerTeam ? m.away : m.home)}</span></label><label class="check-pill"><input type="checkbox" name="ecount_filler" ${m.fillerCounts ? 'checked' : ''}><span>${esc(m.fillerTeam)} (${t('fillerTag').toLowerCase()})</span></label></span>
         <small class="muted">${t('fillerCountsHelp')}</small></div>` : ''}
-      ${m.forfeitBy || m.playoff || m.fromFriendly || m.filler ? '' : `<label class="field">${t('forfeitPlayedLabel')}
+      ${m.forfeitBy || m.playoff || m.fromFriendly ? '' : `<label class="field">${t('forfeitPlayedLabel')}
         <select class="select" name="eforfeit"><option value="">${t('forfeitPlayedNone')}</option>${[m.away, m.home].map(l => `<option value="${esc(l)}" ${m.forfeitPlayed === l ? 'selected' : ''}>${esc(t('forfeitPlayedOpt').replace('{w}', l === m.home ? m.away : m.home).replace('{l}', l))}</option>`).join('')}</select>
         <small class="muted">${t('forfeitPlayedHelp')}</small></label>`}
       <p class="warn" hidden></p>
@@ -8610,7 +8610,7 @@ document.addEventListener('click', e => {
         const r = m.filler.regular;
         Object.assign(m, { home: r.home, away: r.away, forfeitBy: m.filler.gone, field: '', hs: null, as: null, goals: [] });
         if (r.forfeitFrom) m.forfeitFrom = r.forfeitFrom;
-        delete m.fillerTeam; delete m.filler; delete m.fillerCounts;
+        delete m.fillerTeam; delete m.filler; delete m.fillerCounts; delete m.forfeitPlayed;
       } else {
         const w = state.withdrawn[`${m.div}|${m.filler.gone}`];
         if (w) w.left = [...(w.left || []), m.filler.stub];
