@@ -4291,6 +4291,12 @@ function addGameHTML(day) {
 
 // Usual start times ("HH:MM", 24h) for a field, so admins can tap instead of typing.
 const LITTLE_KIDS_FIELD = 'Bitely ES – Field 0';
+// Fields where each little-kids division keeps its own game length (editable per day in the planner).
+const KID_LENGTH_FIELDS = {
+  [LITTLE_KIDS_FIELD]: { u5: 45, u7: 60 },
+  'Mark Keppel HS – Mark Keppel HS Field 1': { u5: 45, u7: 60, u9: 75 },
+};
+const kidLengths = field => KID_LENGTH_FIELDS[FIELDS[field]];
 // Futsal plays on two side-by-side fields (1 and 2), 45-minute games.
 const FUTSAL_SLOTS = {
   fwednesdays: ['19:00', '19:45', '20:30', '21:15'],
@@ -4325,6 +4331,7 @@ function lengthFor(field, div) {
   if (league) return league.length;
   if (groupOf(div) === 'futsal') return 45;
   if (name === LITTLE_KIDS_FIELD) return div === 'u5' ? 45 : 60;
+  if (kidLengths(field) && kidLengths(field)[div]) return kidLengths(field)[div];
   if (GAME_MINUTES[div]) return GAME_MINUTES[div];
   return name === 'Bitely ES – Field 2' ? 70 : 75;
 }
@@ -4332,7 +4339,7 @@ const hhmm = v => { const [h, m] = v.split(':').map(Number); return h * 60 + m; 
 
 // A day's game length can be changed per field (Field 0 keeps U-5 and U-7 separate).
 // Bitely 0 keeps separate U-5 and U-7 lengths; anyone else playing there (e.g. a tournament) has its own.
-const lengthKey = (field, div) => (FIELDS[field] === LITTLE_KIDS_FIELD && (div === 'u5' || div === 'u7') ? div : 'all');
+const lengthKey = (field, div) => (kidLengths(field) && kidLengths(field)[div] ? div : 'all');
 function durationFor(date, section, field, div) {
   const set = state.gameLengths && state.gameLengths[date];
   return (set && set[`${section}|${field}|${lengthKey(field, div)}`]) || lengthFor(field, div);
@@ -4846,11 +4853,12 @@ function holdRow(date, section, field, r, opt, divOptions) {
 function lengthTool(date, section, field, rows) {
   // Bitely 0 shows U-5 / U-7 when they play there that day, and one length for anyone else.
   const here = [...new Set([...boardDivisions(date, section, field).map(d => d.id), ...rows.map(r => r.div).filter(Boolean)])];
-  const little = FIELDS[field] === LITTLE_KIDS_FIELD;
-  const keys = little
-    ? [...['u5', 'u7'].filter(k => here.includes(k)).map(k => [k, divName(k)]), ...(here.some(d => d !== 'u5' && d !== 'u7') || !here.length ? [['all', here.includes('u5') || here.includes('u7') ? t('others') : '']] : [])]
+  const kids = Object.keys(kidLengths(field) || {});
+  const isKid = d => kids.includes(d);
+  const keys = kids.length
+    ? [...kids.filter(k => here.includes(k)).map(k => [k, divName(k)]), ...(here.some(d => !isKid(d)) || !here.length ? [['all', here.some(isKid) ? t('others') : '']] : [])]
     : [['all', '']];
-  const sampleDiv = k => (k === 'all' ? (rows.find(r => r.div && (!little || (r.div !== 'u5' && r.div !== 'u7'))) || {}).div || here.find(d => !little || (d !== 'u5' && d !== 'u7')) || '' : k);
+  const sampleDiv = k => (k === 'all' ? (rows.find(r => r.div && !isKid(r.div)) || {}).div || here.find(d => !isKid(d)) || '' : k);
   const lengths = (state.gameLengths && state.gameLengths[date]) || {};
   const id = `${section}|${field}`;
   const summary = keys.map(([k, label]) => `${label ? label + ' ' : ''}${fmtLen(durationFor(date, section, field, sampleDiv(k)))}`).join(' · ');
