@@ -9532,7 +9532,9 @@ t = key => {
   const s = tBase(key);
   if (typeof s !== 'string' || !/[35]–0|0–3/.test(s)) return s;
   const div = location.hash.startsWith('#/admin') ? ui.adminDiv : ui.div;
-  return forfeitGoals(div) === 5 ? s.replace(/3–0/g, '5–0').replace(/0–3/g, '0–5') : s;
+  // the Schedule planner shows one section (adult, youth or futsal) for the day, whatever division was picked elsewhere
+  const five = location.hash.startsWith('#/admin/schedule') ? ui.boardSection === 'futsal' : forfeitGoals(div) === 5;
+  return five ? s.replace(/3–0/g, '5–0').replace(/0–3/g, '0–5') : s;
 };
 // One-time data upgrades. They run on the published site only, so working on a copy here never changes the
 // league's data before it's published. (The test copy can run them by hand: upgradeGoalCols().)
