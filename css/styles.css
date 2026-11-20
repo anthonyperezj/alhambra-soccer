@@ -1924,3 +1924,4 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 
 /* Fields page: a field's name is a box while its place is being edited */
 .field-admin li .fa-rename { width: 220px; max-width: 100%; flex: none; }
+.field-admin .fa-place-name { font-family: 'Oswald', sans-serif; font-size: 20px; font-weight: 700; margin-bottom: 8px; }

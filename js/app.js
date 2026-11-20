@@ -27,6 +27,8 @@ function applyFieldChanges() {
   Object.entries(state.fieldNames || {}).forEach(([f, n]) => { if (FIELDS[f]) FIELDS[f] = n; });
 }
 const isOpenField = f => !(state.fieldsClosed || {})[f];
+// A field's original name: the league's usual setup (times, lengths, which divisions play there) follows it, even after a rename.
+const baseName = f => BUILT_IN_FIELDS[f] || FIELDS[f];
 const openFields = () => Object.keys(FIELDS).filter(isOpenField);
 const ui = {
   div: DIVISIONS.some(d => d.id === readPref('asl-div')) ? readPref('asl-div') : '40', team: '', adminDiv: '40', adminFilter: 'needs', sheetTeam: readPref('asl-steam') || null,
@@ -805,6 +807,11 @@ const PLACE_INFO = {
   'Rio de Los Angeles State Park': { name: 'Rio de Los Angeles Park', address: '1900 N San Fernando Rd Los Angeles, CA 90065' },
   'Contreras HS': { name: 'Miguel Contreras HS', address: '1255 Miramar St Los Angeles, CA 90026' },
 };
+// The place's full name on the schedule sheet ("Bitely Elementary School"); a place renamed in Admin → Fields shows its new name.
+function placeFull(f) {
+  const cur = placeOf(FIELDS[f] || f), base = placeOf(baseName(f) || f);
+  return cur === base ? (PLACE_INFO[cur] || { name: cur }).name : cur;
+}
 const placeAddress = place => (state.placeAddresses || {})[place] || (PLACE_INFO[place] || {}).address || '';
 function mapsLink(name) {
   const place = placeOf(name);
@@ -4327,7 +4334,7 @@ const groupOf = div => (DIVISIONS.find(d => d.id === div) || {}).group;
 const GAME_MINUTES = { '40': 70, femenil: 60, varonil: 75, u5: 45, u7: 60 };
 // Bitely Field 2 youth games run 70 min; Field 0 is U-7 (1 hr) or U-5 (45 min).
 function lengthFor(field, div) {
-  const name = FIELDS[field];
+  const name = baseName(field);
   const set = (state.settings && state.settings.lengths || {})[div];
   if (set) return set;
   const league = customLeague(div);
@@ -4383,7 +4390,7 @@ function defaultDivisionFields(div) {
   const all = openFields();
   const league = customLeague(div);
   if (league) return league.fields.length ? league.fields.filter(isOpenField) : all;
-  const named = names => all.filter(id => names.includes(FIELDS[id]));
+  const named = names => all.filter(id => names.includes(baseName(id)));
   let list;
   if (YOUTH_FIELDS[div]) list = named(YOUTH_FIELDS[div]);
   else if (groupOf(div) === 'adult') list = named(Object.keys(ADULT_SLOTS[div] || {}));
@@ -4413,7 +4420,9 @@ function pageAdminFields() {
     <h1 class="page-title">${t('fields')}</h1>
     <p class="note">${t('fieldsHelp')}</p>
     <div class="field-admin-grid">${locations().map(loc => `<div class="card field-admin">
-        <h2>${esc(loc.place)}</h2>
+        ${ui.editAddress === loc.place
+          ? `<input class="input fa-place-name" form="place-form-${esc(loc.place).replace(/\W+/g, '-')}" name="placeName" autocomplete="off" value="${esc(loc.place)}" aria-label="${t('locationName')}">`
+          : `<h2>${esc(loc.place)}</h2>`}
         ${ui.editAddress === loc.place
           ? `<form class="address-form" id="place-form-${esc(loc.place).replace(/\W+/g, '-')}" data-form="place-address" data-place="${esc(loc.place)}">
               <input class="input" name="address" autocomplete="off" value="${esc(placeAddress(loc.place))}" aria-label="${t('address')}">
@@ -4543,6 +4552,24 @@ function renameField(id, label) {
   return true;
 }
 
+// Admin → Fields: a place's name changed while editing it; each of its fields keeps its id, games and settings.
+function renamePlace(old, name) {
+  name = name.trim().replace(/\s+/g, ' ').replace(/ – /g, ' - ');
+  if (!name || name === old) return old;
+  const taken = Object.values(FIELDS).some(n => placeOf(n).toLowerCase() === name.toLowerCase());
+  if (taken) { toast(`${t('fieldExists')} (${name})`); return old; }
+  const ids = Object.keys(FIELDS).filter(f => FIELDS[f].split(' – ')[0] === old);
+  if (!ids.length) return old;
+  ids.forEach(f => {
+    const n = `${name} – ${FIELDS[f].split(' – ').slice(1).join(' – ')}`;
+    state.fieldNames = { ...(state.fieldNames || {}), [f]: n };
+    if (state.addedFields && state.addedFields[f]) state.addedFields = { ...state.addedFields, [f]: n };
+  });
+  applyFieldChanges();
+  logAction(`${t('locationName')}: ${old} → ${name}`);
+  return name;
+}
+
 function deleteField(id) {
   const name = FIELDS[id];
   if (!name || fieldHasGames(id)) return;
@@ -4589,7 +4616,7 @@ function boardDivisions(date, section, field) {
 
 function adultTimes(field) {
   const out = [];
-  Object.entries(ADULT_SLOTS).forEach(([div, byField]) => (byField[FIELDS[field]] || []).forEach(tm => out.push([hhmm(tm), div])));
+  Object.entries(ADULT_SLOTS).forEach(([div, byField]) => (byField[baseName(field)] || []).forEach(tm => out.push([hhmm(tm), div])));
   return out.sort((a, b) => a[0] - b[0]);
 }
 
@@ -4604,7 +4631,7 @@ function templateRows(date, section, field) {
   }
   if (section === 'futsal') return (FUTSAL_SLOTS[divs[0].id] || []).map((tm, i) => newRow(hhmm(tm), i === 0, divs[0].id));
   if (section === 'adult') return adultTimes(field).map(([t, div]) => newRow(t, true, div));
-  const name = FIELDS[field];
+  const name = baseName(field);
   const preset = divs.length === 1 ? divs[0].id : '';
   const count = name === LITTLE_KIDS_FIELD ? 8 : name === 'Bitely ES – Field 2' ? 5 : 6;
   const stop = adultTimes(field)[0]?.[0] ?? Infinity;
@@ -5502,7 +5529,7 @@ const sheetDate = date => { const [y, m, d] = date.split('-'); return `${+m}/${+
 function sheetFieldTitle(field) {
   const name = FIELDS[field] || field;
   const [place, num] = name.split(' – ');
-  const info = PLACE_INFO[placeOf(name)] || { name: placeOf(name) };
+  const info = { name: placeFull(field) };
   const several = Object.values(FIELDS).filter(n => n.split(' – ')[0] === place).length > 1;
   const n = (num || '').replace(/^Field\s*/i, '');
   return `${place === 'Futsal' ? `Futsal (#${n})` : info.name}${several && place !== 'Futsal' && n ? ` (#${n})` : ''} ${placeAddress(placeOf(name))}`;
@@ -5573,7 +5600,7 @@ function futsalSheetHTML(date, day, fields) {
   const court = f => {
     const name = FIELDS[f] || f;
     const n = (name.split(' – ')[1] || '').replace(/^Field\s*/i, '');
-    return `${(PLACE_INFO[placeOf(name)] || { name: placeOf(name) }).name} #${n} ${placeAddress(placeOf(name)).replace(/,/g, '')}`;
+    return `${placeFull(f)} #${n} ${placeAddress(placeOf(name)).replace(/,/g, '')}`;
   };
   return `<article class="sheet-page futsal-sheet">
     <header class="fs-head">
@@ -5639,7 +5666,7 @@ function sheetHTML(date, sec) {
     .sort((a, b) => {
       // a field that was deleted since keeps its id as its name
       const na = FIELDS[a] || a, nb = FIELDS[b] || b;
-      const pa = SHEET_PLACE_ORDER.indexOf(na.split(' – ')[0]), pb = SHEET_PLACE_ORDER.indexOf(nb.split(' – ')[0]);
+      const pa = SHEET_PLACE_ORDER.indexOf((baseName(a) || a).split(' – ')[0]), pb = SHEET_PLACE_ORDER.indexOf((baseName(b) || b).split(' – ')[0]);
       return (pa < 0 ? 99 : pa) - (pb < 0 ? 99 : pb) || na.localeCompare(nb);
     });
   if (sec === 'futsal') return futsalSheetHTML(date, day, fields);
@@ -8902,6 +8929,8 @@ document.addEventListener('submit', e => {
     case 'place-address': {
       const place = form.dataset.place, address = form.address.value.trim();
       [...form.elements].filter(x => x.name && x.name.startsWith('field-')).forEach(x => renameField(x.name.slice(6), x.value));
+      const newPlace = renamePlace(place, (form.elements.placeName || {}).value || place);
+      if (newPlace !== place) { ui.editAddress = null; state.placeAddresses = { ...(state.placeAddresses || {}), [newPlace]: address }; delete state.placeAddresses[place]; if (!address) delete state.placeAddresses[newPlace]; save(); render(); return toast(`${t('saved')}: ${newPlace}`); }
       state.placeAddresses = { ...(state.placeAddresses || {}), [place]: address };
       if (!address) delete state.placeAddresses[place];
       logAction(`${t('logAddress')}: ${place}${address ? ` · ${address}` : ''}`);
