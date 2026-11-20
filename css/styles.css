@@ -1921,3 +1921,6 @@ form[data-form^="pa-"] > .field, .pa-card form > .field { margin-bottom: 12px; }
 /* the black field bars and borders print even when "Background graphics" is off */
 .sheet-page, .sheet-page * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 @media print { .sheet-page { min-height: 0; } .sheet-scroll .sheet-page { break-after: avoid; } }
+
+/* Fields page: a field's name is a box while its place is being edited */
+.field-admin li .fa-rename { width: 220px; max-width: 100%; flex: none; }

@@ -23,6 +23,8 @@ function applyFieldChanges() {
   Object.keys(FIELDS).forEach(f => delete FIELDS[f]);
   Object.assign(FIELDS, BUILT_IN_FIELDS, state.addedFields || {});
   Object.keys(state.removedFields || {}).forEach(f => delete FIELDS[f]);
+  // renamed in Admin → Fields (the field keeps its id, so its games and settings stay with it)
+  Object.entries(state.fieldNames || {}).forEach(([f, n]) => { if (FIELDS[f]) FIELDS[f] = n; });
 }
 const isOpenField = f => !(state.fieldsClosed || {})[f];
 const openFields = () => Object.keys(FIELDS).filter(isOpenField);
@@ -4292,11 +4294,12 @@ function addGameHTML(day) {
 // Usual start times ("HH:MM", 24h) for a field, so admins can tap instead of typing.
 const LITTLE_KIDS_FIELD = 'Bitely ES – Field 0';
 // Fields where each little-kids division keeps its own game length (editable per day in the planner).
+// (by field id, so renaming a field keeps them)
 const KID_LENGTH_FIELDS = {
-  [LITTLE_KIDS_FIELD]: { u5: 45, u7: 60 },
-  'Mark Keppel HS – Mark Keppel HS Field 1': { u5: 45, u7: 60, u9: 75 },
+  'bitely-es-field-0': { u5: 45, u7: 60 },
+  'mark-keppel-hs-mark-keppel-hs-field-1': { u5: 45, u7: 60, u9: 75 },
 };
-const kidLengths = field => KID_LENGTH_FIELDS[FIELDS[field]];
+const kidLengths = field => KID_LENGTH_FIELDS[field];
 // Futsal plays on two side-by-side fields (1 and 2), 45-minute games.
 const FUTSAL_SLOTS = {
   fwednesdays: ['19:00', '19:45', '20:30', '21:15'],
@@ -4412,7 +4415,7 @@ function pageAdminFields() {
     <div class="field-admin-grid">${locations().map(loc => `<div class="card field-admin">
         <h2>${esc(loc.place)}</h2>
         ${ui.editAddress === loc.place
-          ? `<form class="address-form" data-form="place-address" data-place="${esc(loc.place)}">
+          ? `<form class="address-form" id="place-form-${esc(loc.place).replace(/\W+/g, '-')}" data-form="place-address" data-place="${esc(loc.place)}">
               <input class="input" name="address" autocomplete="off" value="${esc(placeAddress(loc.place))}" aria-label="${t('address')}">
               <button type="button" class="btn btn-sm btn-outline" data-action="cancel-address">${t('cancel')}</button>
               <button type="submit" class="btn btn-sm btn-gold">${t('save')}</button>
@@ -4420,7 +4423,9 @@ function pageAdminFields() {
           : `<p class="fa-address">${placeAddress(loc.place) ? esc(placeAddress(loc.place)) : `<span class="muted">${t('noAddress')}</span>`}
               <button type="button" class="link-btn" data-action="edit-address" data-place="${esc(loc.place)}">${t(placeAddress(loc.place) ? 'editAddress' : 'addAddress')}</button></p>`}
         <ul>${loc.ids.map((f, i) => `<li class="${isOpenField(f) ? '' : 'is-closed'}">
-          <span class="fa-name">${esc(loc.labels[i])}</span>
+          ${ui.editAddress === loc.place
+            ? `<input class="input fa-rename" form="place-form-${esc(loc.place).replace(/\W+/g, '-')}" name="field-${f}" autocomplete="off" value="${esc(FIELDS[f].split(' – ').slice(1).join(' – '))}" aria-label="${t('renameField')}">`
+            : `<span class="fa-name">${esc(loc.labels[i])}</span>`}
           <span class="tag ${isOpenField(f) ? 'open-tag' : 'closed-tag'}">${t(isOpenField(f) ? 'openNow' : 'closedNow')}</span>
           <span class="fa-actions">
             <button type="button" class="btn btn-sm btn-outline" data-action="toggle-field" data-id="${f}">${t(isOpenField(f) ? 'closeField' : 'reopenField')}</button>
@@ -4520,6 +4525,22 @@ function addField(form) {
   if (dialog) { const done = fieldAdded; closeDialog(dialog); if (done) done(ids); }
   else render();
   return toast(`${t(names.length > 1 ? 'fieldsAdded' : 'fieldAdded')}: ${place} – ${labels.join(', ')}`);
+}
+
+// Admin → Fields: a field's own name changed while editing its place (it keeps its id, games and settings).
+function renameField(id, label) {
+  const old = FIELDS[id];
+  label = label.trim().replace(/\s+/g, ' ');
+  if (/^\d+$/.test(label)) label = `Field ${label}`;
+  if (!old || !label) return false;
+  const name = `${old.split(' – ')[0]} – ${label}`;
+  if (name === old) return false;
+  if (Object.entries(FIELDS).some(([f, n]) => f !== id && n.toLowerCase() === name.toLowerCase())) { toast(`${t('fieldExists')} (${name})`); return false; }
+  state.fieldNames = { ...(state.fieldNames || {}), [id]: name };
+  if (state.addedFields && state.addedFields[id]) state.addedFields = { ...state.addedFields, [id]: name };
+  applyFieldChanges();
+  logAction(`${t('renameField')}: ${old} → ${name}`);
+  return true;
 }
 
 function deleteField(id) {
@@ -5920,6 +5941,11 @@ async function saveSheetPdf(btn) {
 
 // The days a section plays come from its divisions (Sunday for youth and adults, Wednesday and Thursday
 // for futsal, plus any day an added league plays). This snaps a date to one of them in the same week.
+// The sheet opens on the next game day that has games made (today counts), when there is one.
+function nextSheetDay(sec) {
+  const today = todayISO();
+  return state.matches.filter(m => groupOf(m.div) === sec && m.date >= today).map(m => m.date).sort()[0] || '';
+}
 function sheetDayFor(date, sec, dow) {
   const days = sectionDays(sec, sundayOf(date));
   if (!days.length) return sundayOf(date);
@@ -6252,7 +6278,7 @@ function pageAdminTable() {
 
 function pageAdminSheet() {
   const sec = ui.sheetSection || 'youth';
-  const date = ui.sheetDate = sheetDayFor(ui.sheetDate || ui.boardDate || todayISO(), sec);
+  const date = ui.sheetDate = sheetDayFor(ui.sheetDate || nextSheetDay(sec) || ui.boardDate || todayISO(), sec);
   const day = boardDay(date)[sec] || {};
   const fields = Object.keys(day).filter(f => (day[f] || []).some(r => rowTaken(date, r)));
   const refs = ((state.sheetRefs || {})[date] || {});
@@ -7801,7 +7827,11 @@ function render() {
   const page = route.startsWith('admin') && !ui.admin ? pageLogin : ROUTES[route];
   // Every public page starts with the Instagram block (the home page has it among its cards).
   const insta = !route.startsWith('admin') && route !== '' ? `<div class="wrap insta-strip">${instagramCard()}</div>` : '';
+  // the admin side menu stays scrolled where it was (picking a page near the bottom doesn't jump it back to the top)
+  const navTop = document.querySelector('.admin-nav')?.scrollTop || 0;
   document.getElementById('app').innerHTML = insta + page();
+  const nav = document.querySelector('.admin-nav');
+  if (nav && navTop) nav.scrollTop = navTop;
   refreshSaveAll();
   fitTiPreview();
   document.body.classList.toggle('is-admin', route.startsWith('admin'));
@@ -8871,6 +8901,7 @@ document.addEventListener('submit', e => {
     }
     case 'place-address': {
       const place = form.dataset.place, address = form.address.value.trim();
+      [...form.elements].filter(x => x.name && x.name.startsWith('field-')).forEach(x => renameField(x.name.slice(6), x.value));
       state.placeAddresses = { ...(state.placeAddresses || {}), [place]: address };
       if (!address) delete state.placeAddresses[place];
       logAction(`${t('logAddress')}: ${place}${address ? ` · ${address}` : ''}`);
