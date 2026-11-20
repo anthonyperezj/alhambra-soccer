@@ -7770,7 +7770,8 @@ window.addEventListener('beforeprint', () => {
   const page = document.querySelector('.sheet-scroll .sheet-page');
   if (!page) return;
   page.style.zoom = '';
-  const k = Math.min(1, 1050 / page.scrollHeight);
+  // aims a bit under 11 in: printers can't print right to the edge, and print text measures slightly taller
+  const k = Math.min(1, 960 / page.scrollHeight);
   if (k < 1) page.style.zoom = k.toFixed(3);
 });
 window.addEventListener('afterprint', fitSheet);
