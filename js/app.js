@@ -7765,6 +7765,15 @@ function fitSheet() {
   if (k < 1) page.style.zoom = k.toFixed(3);
 }
 window.addEventListener('resize', fitSheet);
+// Printing: the sheet is shrunk to fit one letter page however many games there are, then put back.
+window.addEventListener('beforeprint', () => {
+  const page = document.querySelector('.sheet-scroll .sheet-page');
+  if (!page) return;
+  page.style.zoom = '';
+  const k = Math.min(1, 1050 / page.scrollHeight);
+  if (k < 1) page.style.zoom = k.toFixed(3);
+});
+window.addEventListener('afterprint', fitSheet);
 
 // The admin pages open on the division (and Goleadores team) picked last, also after a refresh. A league
 // added online only exists once the online data is in, so the saved one waits for it.
