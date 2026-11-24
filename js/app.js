@@ -1520,7 +1520,7 @@ function standingsTable(div, compact, limit, past) {
         <th>${t('gd')}</th><th>${t('pts')}</th><th class="hide-sm form-col">${t('form')}</th>
       </tr></thead>
       <tbody>${rows.map((r, i) => `<tr class="${['top', 'second', 'third'][i] || ''}">
-        <td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}${esc(r.team)}</span></td><td>${r.p}</td>
+        <td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}<span class="${longWord(r.team) ? 'long-name' : ''}">${esc(r.team)}</span></span></td><td>${r.p}</td>
         ${full ? `<td>${r.w}</td><td>${r.d}</td><td>${r.l}</td><td class="hide-sm">${r.gf}</td><td class="hide-sm">${r.ga}</td>` : ''}
         <td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td>
         <td class="hide-sm form-col">${formChips([...r.form].reverse())}</td>
@@ -1789,7 +1789,7 @@ function copaGroupsHTML(div) {
     const done = state.matches.filter(m => m.div === div && m.playoff && m.playoff.cup === 'copa' && m.playoff.group === g.name && played(m)).length;
     return `<div class="card copa-group"><h3>${co.roundRobin ? t('tableWord') : `${t('group')} ${esc(g.name)}`} <span class="muted">${t('groupPlayed').replace('{x}', done).replace('{y}', need)}</span></h3>
       <table class="table standings compact-table"><thead><tr><th>${t('pos')}</th><th class="left">${t('team')}</th><th>${t('played')}</th><th>${t('gd')}</th><th>${t('pts')}</th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr class="${i < (co.roundRobin ? 1 : co.advance || 1) ? 'top' : ''}"><td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}${esc(r.team)}</span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td></tr>`).join('')}</tbody></table>
+      <tbody>${rows.map((r, i) => `<tr class="${i < (co.roundRobin ? 1 : co.advance || 1) ? 'top' : ''}"><td class="rank">${i + 1}</td><td class="left team-cell"><span class="team-with-logo">${publicLogo(r.team, true, div)}<span class="${longWord(r.team) ? 'long-name' : ''}">${esc(r.team)}</span></span></td><td>${r.p}</td><td>${r.gd > 0 ? '+' : ''}${r.gd}</td><td class="pts">${r.pts}</td></tr>`).join('')}</tbody></table>
     </div>`;
   }).join('')}</div>`;
 }
@@ -5707,6 +5707,8 @@ const safeName = x => x.replace(/[\\/:*?"<>|]/g, '-');
 // `bg` null = a see-through background (for a table cut out to drop into slides).
 // A team name too long for its picture gets smaller text (only that name), so the table stays inside the
 // picture's width. Runs on the preview and on the copy drawn for saving.
+// A team name with a word too long to wrap (e.g. FRANCISQUENSE) gets smaller text on phones so the table fits.
+const longWord = name => name.split(/\s+/).some(w => w.length >= 12);
 function fitLongNames(root) {
   const textW = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect().width; };
   // Standings picture: the team column stays 3 in wide; a longer name gets smaller text to fit in it
@@ -6147,9 +6149,12 @@ const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
 const scoreGameKey = m => `${m.id}|${m.home}|${m.away}`;
 const scoreHidden = (div, date) => ((ui.scoreHide = ui.scoreHide || {})[`${div}|${date}`] = ui.scoreHide[`${div}|${date}`] || []);
 const shownScoreGames = (div, date) => { const off = scoreHidden(div, date); return scoreDayGames(div, date).filter(m => !off.includes(scoreGameKey(m))); };
+// One or two columns: picked on the page (o.columns) for 2–8 games; 1 game is always one column, more than 8 always two.
+// Not picked yet: two columns past 6 games, as before.
+const scoreCols = (o, n) => (n > 8 ? 2 : n < 2 ? 1 : o.columns === 1 || o.columns === 2 ? o.columns : n > 6 ? 2 : 1);
 function scoresImageHTML(div, date) {
   const o = imgSet('scores', div), games = shownScoreGames(div, date);
-  const two = games.length > 6;
+  const two = scoreCols(o, games.length) === 2;
   // a row is logo 1 · score .92 · vs 1.02 · score .92 · logo 1; text and gaps follow the row's size
   const colW = o.rowWidth, H = o.rowHeight;
   const S = Math.min(H, colW / 4.86);
@@ -6221,7 +6226,8 @@ function pageScoresImage() {
       ${dayGames.length ? `<div class="score-pick-games">
         <details class="games-drop" ${ui.tiGamesOpen ? 'open' : ''}><summary>${t('gamesInPicture')} <span class="muted">(${t('gamesShownOf').replace('{n}', n).replace('{t}', dayGames.length)})</span></summary>
         <span class="day-checks">${dayGames.map(m => { const r = resultOf(m); return `<label class="check-pill"><input type="checkbox" data-change="ti-game" data-key="${esc(scoreGameKey(m))}" ${off.includes(scoreGameKey(m)) ? '' : 'checked'}><span>${esc(m.home)} ${r.double ? 'L' : r.hs}–${r.double ? 'L' : r.as} ${esc(m.away)}</span></label>`; }).join('')}</span></details></div>` : ''}
-      <p class="note">${t('ti_perDiv').replace('{div}', divName(div)).replace(/^./, x => x.toUpperCase())}. ${t(n > 6 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(n > 6 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
+      ${n > 1 ? `<div class="ti-cols"><span class="field-label">${t('ti_columns')}</span><div class="seg">${[1, 2].map(c => `<button type="button" class="${scoreCols(o, n) === c ? 'active' : ''}" data-action="ti-cols" data-n="${c}" ${c === 1 && n > 8 ? `disabled title="${t('scoresOver8')}"` : ''}>${c}</button>`).join('')}</div>${n > 8 ? `<small class="muted">${t('scoresOver8')}</small>` : ''}</div>` : ''}
+      <p class="note">${t('ti_perDiv').replace('{div}', divName(div)).replace(/^./, x => x.toUpperCase())}. ${t(scoreCols(o, n) === 2 ? 'scoresTwoCols' : 'scoresOneCol').replace('{n}', n)} · ${t('ti_preview')}: ${(px => (inch ? `${+(px / 96).toFixed(2)} in` : `${Math.round(px)} px`))(scoreCols(o, n) === 2 ? o.rowWidth * 2 + Math.round(o.rowHeight * 0.3) : o.rowWidth)} ${t('wideWord')}</p>
       <div class="row-actions">
         <button type="button" class="btn btn-gold" data-action="export-card" data-what="scoresImg" data-as="png" data-pdiv="${div}" ${n ? '' : 'disabled'}>${t('saveScoresImage')}</button>
         <button type="button" class="btn btn-outline" data-action="ti-reset">${t('backToDefault')}</button>
@@ -8444,6 +8450,7 @@ document.addEventListener('click', e => {
     // "Back to usual": this division's picture goes back to the built-in look (other divisions keep theirs)
     case 'ti-reset': setImg(tiKindNow(), { ...imgDefaults(tiKindNow()) }); return render();
     case 'ti-height-auto': setImg(tiKindNow(), { ...imgSet(tiKindNow()), height: 0 }); return render();
+    case 'ti-cols': setImg('scores', { ...imgSet('scores'), columns: +el.dataset.n }); return render();
     case 'ti-unit': setImg(tiKindNow(), { ...imgSet(tiKindNow()), unit: el.dataset.unit }); return render();
     case 'board-to-sheet': ui.sheetDate = ui.boardDate; ui.sheetSection = ui.boardSection; return;
     case 'sheet-to-board': {
