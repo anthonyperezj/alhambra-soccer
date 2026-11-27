@@ -6141,10 +6141,9 @@ function scoreDays(div) {
   const all = [...state.matches, ...forfeitStubs(div)].filter(m => m.div === div && !m.fromFriendly && resultOf(m));
   return [...new Set(all.map(m => m.date))].sort().reverse();
 }
-// The scores picture leaves out forfeits that weren't played (a played game that counts as a forfeit stays, as 3–0).
-const unplayedForfeit = m => { const r = resultOf(m); return !!(r && r.forfeit && !r.real); };
+// The scores picture shows forfeits too, as 3–0 (5–0 futsal); a double forfeit shows L–L.
 const scoreDayGames = (div, date) => [...state.matches, ...forfeitStubs(div)]
-  .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m) && !swappedForfeit(m) && !unplayedForfeit(m)).sort(byDateTime);
+  .filter(m => m.div === div && m.date === date && !m.fromFriendly && resultOf(m) && !swappedForfeit(m)).sort(byDateTime);
 // Games unticked in "Games in the picture" stay out of it (only on this screen, until the page reloads).
 const scoreGameKey = m => `${m.id}|${m.home}|${m.away}`;
 const scoreHidden = (div, date) => ((ui.scoreHide = ui.scoreHide || {})[`${div}|${date}`] = ui.scoreHide[`${div}|${date}`] || []);
